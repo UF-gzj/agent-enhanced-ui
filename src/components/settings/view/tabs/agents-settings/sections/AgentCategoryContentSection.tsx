@@ -1,6 +1,7 @@
+import { McpServers } from '../../../../../mcp';
+
 import type { AgentCategoryContentSectionProps } from '../types';
 import AccountContent from './content/AccountContent';
-import McpServersContent from './content/McpServersContent';
 import PermissionsContent from './content/PermissionsContent';
 
 export default function AgentCategoryContentSection({
@@ -13,26 +14,11 @@ export default function AgentCategoryContentSection({
   onCursorPermissionsChange,
   codexPermissionMode,
   onCodexPermissionModeChange,
-  mcpServers,
-  cursorMcpServers,
-  codexMcpServers,
-  mcpTestResults,
-  mcpServerTools,
-  mcpToolsLoading,
-  deleteError,
-  onOpenMcpForm,
-  onDeleteMcpServer,
-  onTestMcpServer,
-  onDiscoverMcpTools,
-  onOpenCodexMcpForm,
-  onDeleteCodexMcpServer,
   harnessSubagentSettings,
   onHarnessSelectedProviderChange,
   onHarnessSubagentConfigChange,
+  projects,
 }: AgentCategoryContentSectionProps) {
-  // Cursor MCP add/edit/delete was previously a placeholder and is intentionally preserved.
-  const noopCursorMcpAction = () => {};
-
   return (
     <div className="flex-1 overflow-y-auto p-3 md:p-4">
       {selectedCategory === 'account' && (
@@ -90,40 +76,10 @@ export default function AgentCategoryContentSection({
         />
       )}
 
-      {selectedCategory === 'mcp' && selectedAgent === 'claude' && (
-        <McpServersContent
-          agent="claude"
-          servers={mcpServers}
-          onAdd={() => onOpenMcpForm()}
-          onEdit={(server) => onOpenMcpForm(server)}
-          onDelete={onDeleteMcpServer}
-          onTest={onTestMcpServer}
-          onDiscoverTools={onDiscoverMcpTools}
-          testResults={mcpTestResults}
-          serverTools={mcpServerTools}
-          toolsLoading={mcpToolsLoading}
-          deleteError={deleteError}
-        />
-      )}
-
-      {selectedCategory === 'mcp' && selectedAgent === 'cursor' && (
-        <McpServersContent
-          agent="cursor"
-          servers={cursorMcpServers}
-          onAdd={noopCursorMcpAction}
-          onEdit={noopCursorMcpAction}
-          onDelete={noopCursorMcpAction}
-        />
-      )}
-
-      {selectedCategory === 'mcp' && selectedAgent === 'codex' && (
-        <McpServersContent
-          agent="codex"
-          servers={codexMcpServers}
-          onAdd={() => onOpenCodexMcpForm()}
-          onEdit={(server) => onOpenCodexMcpForm(server)}
-          onDelete={(serverId) => onDeleteCodexMcpServer(serverId)}
-          deleteError={deleteError}
+      {selectedCategory === 'mcp' && (
+        <McpServers
+          selectedProvider={selectedAgent}
+          currentProjects={projects}
         />
       )}
     </div>

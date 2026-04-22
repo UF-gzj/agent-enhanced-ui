@@ -1,21 +1,20 @@
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import ProviderLoginModal from '../../provider-auth/view/ProviderLoginModal';
-import { Button } from '../../../shared/view/ui';
-import ClaudeMcpFormModal from '../view/modals/ClaudeMcpFormModal';
-import CodexMcpFormModal from '../view/modals/CodexMcpFormModal';
-import SettingsSidebar from '../view/SettingsSidebar';
-import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
-import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
-import CredentialsSettingsTab from '../view/tabs/api-settings/CredentialsSettingsTab';
-import GitSettingsTab from '../view/tabs/git-settings/GitSettingsTab';
-import NotificationsSettingsTab from '../view/tabs/NotificationsSettingsTab';
-import TasksSettingsTab from '../view/tabs/tasks-settings/TasksSettingsTab';
-import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
-import AboutTab from '../view/tabs/AboutTab';
-import { useSettingsController } from '../hooks/useSettingsController';
+
 import { useWebPush } from '../../../hooks/useWebPush';
+import { Button } from '../../../shared/view/ui';
+import ProviderLoginModal from '../../provider-auth/view/ProviderLoginModal';
+import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
+import { useSettingsController } from '../hooks/useSettingsController';
 import type { SettingsProps } from '../types/types';
+import SettingsSidebar from './SettingsSidebar';
+import AppearanceSettingsTab from './tabs/AppearanceSettingsTab';
+import AboutTab from './tabs/AboutTab';
+import CredentialsSettingsTab from './tabs/api-settings/CredentialsSettingsTab';
+import AgentsSettingsTab from './tabs/agents-settings/AgentsSettingsTab';
+import GitSettingsTab from './tabs/git-settings/GitSettingsTab';
+import NotificationsSettingsTab from './tabs/NotificationsSettingsTab';
+import TasksSettingsTab from './tabs/tasks-settings/TasksSettingsTab';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
@@ -23,7 +22,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     activeTab,
     setActiveTab,
     saveStatus,
-    deleteError,
     projectSortOrder,
     setProjectSortOrder,
     codeEditorSettings,
@@ -36,26 +34,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     setCursorPermissions,
     codexPermissionMode,
     setCodexPermissionMode,
-    mcpServers,
-    cursorMcpServers,
-    codexMcpServers,
-    mcpTestResults,
-    mcpServerTools,
-    mcpToolsLoading,
-    showMcpForm,
-    editingMcpServer,
-    openMcpForm,
-    closeMcpForm,
-    submitMcpForm,
-    handleMcpDelete,
-    handleMcpTest,
-    handleMcpToolsDiscovery,
-    showCodexMcpForm,
-    editingCodexMcpServer,
-    openCodexMcpForm,
-    closeCodexMcpForm,
-    submitCodexMcpForm,
-    handleCodexMcpDelete,
     providerAuthStatus,
     harnessSubagentSettings,
     setHarnessSelectedProvider,
@@ -69,7 +47,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     handleLoginComplete,
   } = useSettingsController({
     isOpen,
-    initialTab
+    initialTab,
   });
 
   const {
@@ -82,7 +60,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
   const handleEnablePush = async () => {
     await pushSubscribe();
-    // Server sets webPush: true in preferences on subscribe; sync local state
     setNotificationPreferences({
       ...notificationPreferences,
       channels: { ...notificationPreferences.channels, webPush: true },
@@ -91,7 +68,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
   const handleDisablePush = async () => {
     await pushUnsubscribe();
-    // Server sets webPush: false in preferences on unsubscribe; sync local state
     setNotificationPreferences({
       ...notificationPreferences,
       channels: { ...notificationPreferences.channels, webPush: false },
@@ -105,12 +81,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   const isAuthenticated = Boolean(loginProvider && providerAuthStatus[loginProvider].authenticated);
 
   return (
-    <div
-      data-testid="settings-modal"
-      className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4"
-    >
+    <div className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
       <div className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
-        {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">
           <h2 className="text-base font-semibold text-foreground">{t('title')}</h2>
           <div className="flex items-center gap-2">
@@ -128,11 +100,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
           </div>
         </div>
 
-        {/* Body: sidebar + content */}
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           <SettingsSidebar activeTab={activeTab} onChange={setActiveTab} />
 
-          {/* Content */}
           <main className="flex-1 overflow-y-auto">
             <div key={activeTab} className="settings-content-enter space-y-6 p-4 pb-safe-area-inset-bottom md:space-y-8 md:p-6">
               {activeTab === 'appearance' && (
@@ -162,38 +132,26 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onCodexPermissionModeChange={setCodexPermissionMode}
                   geminiPermissionMode={geminiPermissionMode}
                   onGeminiPermissionModeChange={setGeminiPermissionMode}
-                  mcpServers={mcpServers}
-                  cursorMcpServers={cursorMcpServers}
-                  codexMcpServers={codexMcpServers}
-                  mcpTestResults={mcpTestResults}
-                  mcpServerTools={mcpServerTools}
-                  mcpToolsLoading={mcpToolsLoading}
-                  onOpenMcpForm={openMcpForm}
-                  onDeleteMcpServer={handleMcpDelete}
-                  onTestMcpServer={handleMcpTest}
-                  onDiscoverMcpTools={handleMcpToolsDiscovery}
-                  onOpenCodexMcpForm={openCodexMcpForm}
-                  onDeleteCodexMcpServer={handleCodexMcpDelete}
-                  deleteError={deleteError}
                   harnessSubagentSettings={harnessSubagentSettings}
                   onHarnessSelectedProviderChange={setHarnessSelectedProvider}
                   onHarnessSubagentConfigChange={updateHarnessSubagentConfig}
+                  projects={projects}
                 />
               )}
 
               {activeTab === 'tasks' && <TasksSettingsTab />}
 
-            {activeTab === 'notifications' && (
-              <NotificationsSettingsTab
-                notificationPreferences={notificationPreferences}
-                onNotificationPreferencesChange={setNotificationPreferences}
-                pushPermission={pushPermission}
-                isPushSubscribed={isPushSubscribed}
-                isPushLoading={isPushLoading}
-                onEnablePush={handleEnablePush}
-                onDisablePush={handleDisablePush}
-              />
-            )}
+              {activeTab === 'notifications' && (
+                <NotificationsSettingsTab
+                  notificationPreferences={notificationPreferences}
+                  onNotificationPreferencesChange={setNotificationPreferences}
+                  pushPermission={pushPermission}
+                  isPushSubscribed={isPushSubscribed}
+                  isPushLoading={isPushLoading}
+                  onEnablePush={handleEnablePush}
+                  onDisablePush={handleDisablePush}
+                />
+              )}
 
               {activeTab === 'api' && <CredentialsSettingsTab />}
 
@@ -212,21 +170,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
         provider={loginProvider || 'claude'}
         onComplete={handleLoginComplete}
         isAuthenticated={isAuthenticated}
-      />
-
-      <ClaudeMcpFormModal
-        isOpen={showMcpForm}
-        editingServer={editingMcpServer}
-        projects={projects}
-        onClose={closeMcpForm}
-        onSubmit={submitMcpForm}
-      />
-
-      <CodexMcpFormModal
-        isOpen={showCodexMcpForm}
-        editingServer={editingCodexMcpServer}
-        onClose={closeCodexMcpForm}
-        onSubmit={submitCodexMcpForm}
       />
     </div>
   );
