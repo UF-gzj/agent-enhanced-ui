@@ -1,9 +1,68 @@
 import express from 'express';
+import { spawnSync } from 'child_process';
 import { apiKeysDb, credentialsDb, notificationPreferencesDb, pushSubscriptionsDb } from '../database/db.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
+import { findAppRoot, getModuleDir } from '../utils/runtime-paths.js';
 
 const router = express.Router();
+const __dirname = getModuleDir(import.meta.url);
+const APP_ROOT = findAppRoot(__dirname);
+
+function parseGitHubRemote(remoteUrl) {
+  if (!remoteUrl || typeof remoteUrl !== 'string') {
+    return null;
+  }
+
+  const trimmed = remoteUrl.trim().replace(/^git\+/, '');
+  const patterns = [
+    /^git@github\.com:(?<owner>[^/]+)\/(?<repo>.+?)(?:\.git)?$/,
+    /^https?:\/\/github\.com\/(?<owner>[^/]+)\/(?<repo>.+?)(?:\.git)?$/,
+    /^ssh:\/\/git@github\.com\/(?<owner>[^/]+)\/(?<repo>.+?)(?:\.git)?$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (!match?.groups?.owner || !match?.groups?.repo) {
+      continue;
+    }
+
+    const owner = match.groups.owner;
+    const repo = match.groups.repo.replace(/\.git$/, '');
+
+    return {
+      owner,
+      repo,
+      repositoryUrl: `https://github.com/${owner}/${repo}`,
+      displayName: `${owner}/${repo}`,
+    };
+  }
+
+  return null;
+}
+
+router.get('/app-repository', async (_req, res) => {
+  try {
+    const result = spawnSync('git', ['config', '--get', 'remote.origin.url'], {
+      cwd: APP_ROOT,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+
+    const remoteUrl = result.status === 0 ? result.stdout.trim() : '';
+    const github = parseGitHubRemote(remoteUrl);
+
+    res.json({
+      success: true,
+      appRoot: APP_ROOT,
+      remoteUrl: remoteUrl || null,
+      repository: github,
+    });
+  } catch (error) {
+    console.error('Error reading app repository info:', error);
+    res.status(500).json({ error: 'Failed to read app repository info' });
+  }
+});
 
 // ===============================
 // API Keys Management

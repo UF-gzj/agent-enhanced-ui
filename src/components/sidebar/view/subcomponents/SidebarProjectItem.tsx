@@ -271,6 +271,7 @@ export default function SidebarProjectItem({
 
         <Button
           variant="ghost"
+          data-testid={`project-item-${project.name}`}
           className={cn(
             'hidden md:flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
             isSelected && 'bg-accent text-accent-foreground',

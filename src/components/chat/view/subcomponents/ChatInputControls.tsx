@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PermissionMode, Provider } from '../../types/types';
+import type { HarnessAvailability } from '../../../../types/app';
 import ThinkingModeSelector from './ThinkingModeSelector';
 import TokenUsagePie from './TokenUsagePie';
 
@@ -10,6 +11,10 @@ interface ChatInputControlsProps {
   provider: Provider | string;
   thinkingMode: string;
   setThinkingMode: React.Dispatch<React.SetStateAction<string>>;
+  conversationMode: 'chat' | 'harness';
+  harnessAvailability: HarnessAvailability;
+  harnessAvailabilityReason: string | null;
+  onConversationModeToggle: () => void;
   tokenBudget: { used?: number; total?: number } | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
@@ -26,6 +31,10 @@ export default function ChatInputControls({
   provider,
   thinkingMode,
   setThinkingMode,
+  conversationMode,
+  harnessAvailability,
+  harnessAvailabilityReason,
+  onConversationModeToggle,
   tokenBudget,
   slashCommandsCount,
   onToggleCommandMenu,
@@ -36,6 +45,12 @@ export default function ChatInputControls({
   onScrollToBottom,
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
+  const harnessDisabled = harnessAvailability !== 'available';
+  const harnessTitle = harnessDisabled
+    ? harnessAvailability === 'unavailable_no_claude'
+      ? t('conversationMode.disabledNoClaude')
+      : harnessAvailabilityReason || t('conversationMode.disabledGeneric')
+    : t('conversationMode.toggleTitle');
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
@@ -74,6 +89,25 @@ export default function ChatInputControls({
         </div>
       </button>
 
+      <button
+        type="button"
+        onClick={onConversationModeToggle}
+        disabled={harnessDisabled}
+        data-testid="conversation-mode-toggle"
+        data-mode={conversationMode}
+        data-harness-availability={harnessAvailability}
+        className={`rounded-lg border px-2.5 py-1 text-sm font-medium transition-all duration-200 sm:px-3 sm:py-1.5 ${
+          conversationMode === 'harness'
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted'
+        } disabled:cursor-not-allowed disabled:border-border/40 disabled:bg-muted/30 disabled:text-muted-foreground/60`}
+        title={harnessTitle}
+      >
+        {conversationMode === 'harness'
+          ? t('conversationMode.harness')
+          : t('conversationMode.chat')}
+      </button>
+
       {provider === 'claude' && (
         <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" />
       )}
@@ -83,6 +117,7 @@ export default function ChatInputControls({
       <button
         type="button"
         onClick={onToggleCommandMenu}
+        data-testid="slash-command-menu-toggle"
         className="relative flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground sm:h-8 sm:w-8"
         title={t('input.showAllCommands')}
       >

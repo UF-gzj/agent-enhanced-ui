@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 
 type CommandMenuCommand = {
   name: string;
@@ -51,6 +52,10 @@ const getCommandKey = (command: CommandMenuCommand) =>
   `${command.name}::${command.namespace || command.type || 'other'}::${command.path || ''}`;
 
 const getNamespace = (command: CommandMenuCommand) => command.namespace || command.type || 'other';
+const getCommandMetadataType = (command: CommandMenuCommand): string | null =>
+  typeof command.metadata?.type === 'string' ? command.metadata.type : null;
+const getRequiresHarness = (command: CommandMenuCommand): boolean =>
+  command.metadata?.requiresHarness === true;
 
 const getMenuPosition = (position: { top: number; left: number; bottom?: number }): CSSProperties => {
   if (typeof window === 'undefined') {
@@ -86,6 +91,7 @@ export default function CommandMenu({
   isOpen = false,
   frequentCommands = [],
 }: CommandMenuProps) {
+  const { t } = useTranslation('chat');
   const menuRef = useRef<HTMLDivElement | null>(null);
   const selectedItemRef = useRef<HTMLDivElement | null>(null);
   const menuPosition = getMenuPosition(position);
@@ -159,7 +165,7 @@ export default function CommandMenu({
         className="command-menu command-menu-empty border border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
         style={{ ...menuPosition, ...menuBaseStyle, overflowY: 'hidden', padding: '20px', opacity: 1, transform: 'translateY(0)', textAlign: 'center' }}
       >
-        No commands available
+        {t('commands.empty', { defaultValue: 'No commands available' })}
       </div>
     );
   }
@@ -168,7 +174,8 @@ export default function CommandMenu({
     <div
       ref={menuRef}
       role="listbox"
-      aria-label="Available commands"
+      aria-label={t('commands.availableAria', { defaultValue: 'Available commands' })}
+      data-testid="command-menu"
       className="command-menu border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
       style={{ ...menuPosition, ...menuBaseStyle, opacity: 1, transform: 'translateY(0)' }}
     >
@@ -184,12 +191,15 @@ export default function CommandMenu({
             const commandKey = getCommandKey(command);
             const commandIndex = commandIndexByKey.get(commandKey) ?? -1;
             const isSelected = commandIndex === selectedIndex;
+            const commandMetadataType = getCommandMetadataType(command);
+            const requiresHarness = getRequiresHarness(command);
             return (
               <div
                 key={`${namespace}-${command.name}-${command.path || ''}`}
                 ref={isSelected ? selectedItemRef : null}
                 role="option"
                 aria-selected={isSelected}
+                data-testid={`command-menu-item-${command.name.replace(/[^a-zA-Z0-9/_-]/g, '_')}`}
                 className={`command-item mb-0.5 flex cursor-pointer items-start rounded-md px-3 py-2.5 transition-colors ${
                   isSelected ? 'bg-blue-50 dark:bg-blue-900' : 'bg-transparent'
                 }`}
@@ -201,9 +211,14 @@ export default function CommandMenu({
                   <div className={`flex items-center gap-2 ${command.description ? 'mb-1' : 'mb-0'}`}>
                     <span className="shrink-0 text-xs text-gray-500 dark:text-gray-300">{namespaceIcons[namespace] || namespaceIcons.other}</span>
                     <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{command.name}</span>
-                    {command.metadata?.type && (
+                    {commandMetadataType && (
                       <span className="command-metadata-badge rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300">
-                        {command.metadata.type}
+                        {commandMetadataType}
+                      </span>
+                    )}
+                    {requiresHarness && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {t('conversationMode.harness')}
                       </span>
                     )}
                   </div>

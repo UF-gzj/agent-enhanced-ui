@@ -26,6 +26,9 @@ export default function AgentCategoryContentSection({
   onDiscoverMcpTools,
   onOpenCodexMcpForm,
   onDeleteCodexMcpServer,
+  harnessSubagentSettings,
+  onHarnessSelectedProviderChange,
+  onHarnessSubagentConfigChange,
 }: AgentCategoryContentSectionProps) {
   // Cursor MCP add/edit/delete was previously a placeholder and is intentionally preserved.
   const noopCursorMcpAction = () => {};
@@ -37,6 +40,9 @@ export default function AgentCategoryContentSection({
           agent={selectedAgent}
           authStatus={agentContextById[selectedAgent].authStatus}
           onLogin={agentContextById[selectedAgent].onLogin}
+          harnessSubagentSettings={harnessSubagentSettings}
+          onHarnessSelectedProviderChange={onHarnessSelectedProviderChange}
+          onHarnessSubagentConfigChange={onHarnessSubagentConfigChange}
         />
       )}
 

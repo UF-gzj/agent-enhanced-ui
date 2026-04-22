@@ -6,6 +6,7 @@ import type {
   CursorPermissionsState,
   CodexPermissionMode,
   GeminiPermissionMode,
+  HarnessSubagentSettingsState,
   McpServer,
   McpToolsResult,
   McpTestResult,
@@ -43,6 +44,13 @@ export type AgentsSettingsTabProps = {
   onDiscoverMcpTools: (serverId: string, scope?: string) => void;
   onOpenCodexMcpForm: (server?: McpServer) => void;
   onDeleteCodexMcpServer: (serverId: string) => void;
+  harnessSubagentSettings: HarnessSubagentSettingsState;
+  onHarnessSelectedProviderChange: (provider: AgentProvider) => void;
+  onHarnessSubagentConfigChange: (
+    provider: AgentProvider,
+    role: 'reviewer' | 'validator',
+    model: string,
+  ) => void;
 };
 
 export type AgentCategoryTabsSectionProps = {
@@ -81,4 +89,11 @@ export type AgentCategoryContentSectionProps = {
   onDiscoverMcpTools: (serverId: string, scope?: string) => void;
   onOpenCodexMcpForm: (server?: McpServer) => void;
   onDeleteCodexMcpServer: (serverId: string) => void;
+  harnessSubagentSettings: HarnessSubagentSettingsState;
+  onHarnessSelectedProviderChange: (provider: AgentProvider) => void;
+  onHarnessSubagentConfigChange: (
+    provider: AgentProvider,
+    role: 'reviewer' | 'validator',
+    model: string,
+  ) => void;
 };

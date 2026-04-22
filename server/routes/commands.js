@@ -13,6 +13,59 @@ const APP_ROOT = findAppRoot(__dirname);
 
 const router = express.Router();
 
+function normalizeCommandIdentifier(value) {
+  if (!value) {
+    return value;
+  }
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  return withLeadingSlash.replace(/:/g, '/').replace(/\/+/g, '/');
+}
+
+function dedupeCustomCommands(commands) {
+  return commands.reduce((bucket, command) => {
+    const canonicalName = normalizeCommandIdentifier(
+      typeof command?.metadata?.alias_for === 'string' ? command.metadata.alias_for : command.name,
+    );
+
+    const existingIndex = bucket.findIndex((existingCommand) => {
+      const existingCanonicalName = normalizeCommandIdentifier(
+        typeof existingCommand?.metadata?.alias_for === 'string'
+          ? existingCommand.metadata.alias_for
+          : existingCommand.name,
+      );
+      return existingCanonicalName === canonicalName;
+    });
+
+    if (existingIndex === -1) {
+      bucket.push({
+        ...command,
+        metadata: {
+          ...(command.metadata || {}),
+          canonicalName,
+        },
+      });
+      return bucket;
+    }
+
+    const existingCommand = bucket[existingIndex];
+    const existingIsAlias = typeof existingCommand?.metadata?.alias_for === 'string';
+    const nextIsAlias = typeof command?.metadata?.alias_for === 'string';
+
+    if (existingIsAlias && !nextIsAlias) {
+      bucket[existingIndex] = {
+        ...command,
+        metadata: {
+          ...(command.metadata || {}),
+          canonicalName,
+        },
+      };
+    }
+
+    return bucket;
+  }, []);
+}
+
 /**
  * Recursively scan directory for command files (.md)
  * @param {string} dir - Directory to scan
@@ -432,7 +485,7 @@ router.post('/list', async (req, res) => {
     allCommands.push(...userCommands);
 
     // Separate built-in and custom commands
-    const customCommands = allCommands.filter(cmd => cmd.namespace !== 'builtin');
+    const customCommands = dedupeCustomCommands(allCommands.filter(cmd => cmd.namespace !== 'builtin'));
 
     // Sort commands alphabetically by name
     customCommands.sort((a, b) => a.name.localeCompare(b.name));
@@ -440,7 +493,7 @@ router.post('/list', async (req, res) => {
     res.json({
       builtIn: builtInCommands,
       custom: customCommands,
-      count: allCommands.length
+      count: builtInCommands.length + customCommands.length
     });
   } catch (error) {
     console.error('Error listing commands:', error);

@@ -15,6 +15,7 @@ import type {
   CodexPermissionMode,
   CursorPermissionsState,
   GeminiPermissionMode,
+  HarnessSubagentSettingsState,
   McpServer,
   McpToolsResult,
   McpTestResult,
@@ -88,6 +89,26 @@ type CodexSettingsStorage = {
 type NotificationPreferencesResponse = {
   success?: boolean;
   preferences?: NotificationPreferencesState;
+};
+
+type HarnessSubagentSettingsResponse = {
+  selectedProvider: AgentProvider;
+  providers: Array<{
+    provider: AgentProvider;
+    displayName: string;
+    supportsSubagentModelOverride: boolean;
+    supportsNativeCommand: boolean;
+    supportsNativeConfig: boolean;
+    supportsNativeApi: boolean;
+    defaultMode: 'inherit' | 'override' | 'unsupported';
+    availableModels: string[];
+    modelSourceType: string;
+    modelSourceRef: string;
+    reviewerMode: 'inherit' | 'override' | 'unsupported';
+    reviewerModel?: string;
+    validatorMode: 'inherit' | 'override' | 'unsupported';
+    validatorModel?: string;
+  }>;
 };
 
 type ActiveLoginProvider = AgentProvider | '';
@@ -178,6 +199,13 @@ const createDefaultNotificationPreferences = (): NotificationPreferencesState =>
   },
 });
 
+const createDefaultHarnessSubagentSettings = (): HarnessSubagentSettingsState => ({
+  selectedProvider: 'claude',
+  providers: [],
+  loading: false,
+  error: null,
+});
+
 export function useSettingsController({ isOpen, initialTab }: UseSettingsControllerArgs) {
   const { isDarkMode, toggleDarkMode } = useTheme() as ThemeContextValue;
   const closeTimerRef = useRef<number | null>(null);
@@ -201,6 +229,9 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
   ));
   const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('default');
   const [geminiPermissionMode, setGeminiPermissionMode] = useState<GeminiPermissionMode>('default');
+  const [harnessSubagentSettings, setHarnessSubagentSettings] = useState<HarnessSubagentSettingsState>(() => (
+    createDefaultHarnessSubagentSettings()
+  ));
 
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [cursorMcpServers, setCursorMcpServers] = useState<McpServer[]>([]);
@@ -295,6 +326,34 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
       setMcpServers(fallbackData.servers || []);
     } catch (error) {
       console.error('Error fetching MCP servers:', error);
+    }
+  }, []);
+
+  const fetchHarnessSubagentSettings = useCallback(async () => {
+    setHarnessSubagentSettings((previous) => ({
+      ...previous,
+      loading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await authenticatedFetch('/api/harness/settings/subagent-models');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await toResponseJson<HarnessSubagentSettingsResponse>(response);
+      setHarnessSubagentSettings({
+        ...data,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      setHarnessSubagentSettings((previous) => ({
+        ...previous,
+        loading: false,
+        error: getErrorMessage(error),
+      }));
     }
   }, []);
 
@@ -632,6 +691,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         fetchMcpServers(),
         fetchCursorMcpServers(),
         fetchCodexMcpServers(),
+        fetchHarnessSubagentSettings(),
       ]);
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -640,8 +700,9 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
       setNotificationPreferences(createDefaultNotificationPreferences());
       setCodexPermissionMode('default');
       setProjectSortOrder('name');
+      setHarnessSubagentSettings(createDefaultHarnessSubagentSettings());
     }
-  }, [fetchCodexMcpServers, fetchCursorMcpServers, fetchMcpServers]);
+  }, [fetchCodexMcpServers, fetchCursorMcpServers, fetchHarnessSubagentSettings, fetchMcpServers]);
 
   const openLoginForProvider = useCallback((provider: AgentProvider) => {
     setLoginProvider(provider);
@@ -695,6 +756,31 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         throw new Error('Failed to save notification preferences');
       }
 
+      const harnessResponse = await authenticatedFetch('/api/harness/settings/subagent-models', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          selectedProvider: harnessSubagentSettings.selectedProvider,
+          configs: Object.fromEntries(
+            harnessSubagentSettings.providers.map((provider) => [
+              provider.provider,
+              {
+                provider: provider.provider,
+                reviewerMode: provider.reviewerMode,
+                reviewerModel: provider.reviewerModel,
+                validatorMode: provider.validatorMode,
+                validatorModel: provider.validatorModel,
+              },
+            ]),
+          ),
+        }),
+      });
+      if (!harnessResponse.ok) {
+        throw new Error('Failed to save harness subagent settings');
+      }
+
       setSaveStatus('success');
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -708,6 +794,8 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     cursorPermissions.allowedCommands,
     cursorPermissions.disallowedCommands,
     cursorPermissions.skipPermissions,
+    harnessSubagentSettings.providers,
+    harnessSubagentSettings.selectedProvider,
     notificationPreferences,
     geminiPermissionMode,
     projectSortOrder,
@@ -739,6 +827,42 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     setShowCodexMcpForm(false);
     setEditingCodexMcpServer(null);
   }, []);
+
+  const setHarnessSelectedProvider = useCallback((provider: AgentProvider) => {
+    setHarnessSubagentSettings((previous) => ({
+      ...previous,
+      selectedProvider: provider,
+      error: null,
+    }));
+  }, []);
+
+  const updateHarnessSubagentConfig = useCallback(
+    (provider: AgentProvider, role: 'reviewer' | 'validator', model: string) => {
+      setHarnessSubagentSettings((previous) => ({
+        ...previous,
+        providers: previous.providers.map((entry) => {
+          if (entry.provider !== provider || !entry.supportsSubagentModelOverride) {
+            return entry;
+          }
+
+          if (role === 'reviewer') {
+            return {
+              ...entry,
+              reviewerMode: model === 'inherit' ? 'inherit' : 'override',
+              reviewerModel: model,
+            };
+          }
+
+          return {
+            ...entry,
+            validatorMode: model === 'inherit' ? 'inherit' : 'override',
+            validatorModel: model,
+          };
+        }),
+      }));
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -853,6 +977,9 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     submitCodexMcpForm,
     handleCodexMcpDelete,
     providerAuthStatus,
+    harnessSubagentSettings,
+    setHarnessSelectedProvider,
+    updateHarnessSubagentConfig,
     geminiPermissionMode,
     setGeminiPermissionMode,
     openLoginForProvider,

@@ -1,8 +1,7 @@
-import { Star, X } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { useGitHubStars } from '../../../../hooks/useGitHubStars';
+import { useAppRepositoryInfo } from '../../../../hooks/useAppRepositoryInfo';
 import { IS_PLATFORM } from '../../../../constants/config';
-
-const GITHUB_REPO_URL = 'https://github.com/siteboon/claudecodeui';
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -13,14 +12,15 @@ function GitHubIcon({ className }: { className?: string }) {
 }
 
 export default function GitHubStarBadge() {
-  const { formattedCount, isDismissed, dismiss } = useGitHubStars('siteboon', 'claudecodeui');
+  const { repository, isLoading } = useAppRepositoryInfo();
+  const { formattedCount } = useGitHubStars(repository?.owner ?? '', repository?.repo ?? '');
 
-  if (IS_PLATFORM || isDismissed) return null;
+  if (IS_PLATFORM || isLoading || !repository?.repositoryUrl) return null;
 
   return (
-    <div className="group/star relative hidden md:block">
+    <div className="hidden md:block">
       <a
-        href={GITHUB_REPO_URL}
+        href={repository.repositoryUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
@@ -32,17 +32,6 @@ export default function GitHubStarBadge() {
           <span className="border-l border-border/50 pl-1.5 tabular-nums">{formattedCount}</span>
         )}
       </a>
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          dismiss();
-        }}
-        className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border border-border/50 bg-muted text-muted-foreground transition-colors hover:text-foreground group-hover/star:flex"
-        aria-label="Dismiss"
-      >
-        <X className="h-2.5 w-2.5" />
-      </button>
     </div>
   );
 }

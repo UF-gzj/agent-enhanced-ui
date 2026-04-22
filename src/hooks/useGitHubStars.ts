@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
-const CACHE_KEY = 'CLOUDCLI_GITHUB_STARS';
-const DISMISS_KEY = 'CLOUDCLI_HIDE_GITHUB_STAR';
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 type CachedStars = {
@@ -11,20 +9,17 @@ type CachedStars = {
 
 export const useGitHubStars = (owner: string, repo: string) => {
   const [starCount, setStarCount] = useState<number | null>(null);
-  const [isDismissed, setIsDismissed] = useState(() => {
-    try {
-      return localStorage.getItem(DISMISS_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const cacheKey = `AGENT_ENHANCED_GITHUB_STARS:${owner}/${repo}`;
 
   useEffect(() => {
-    if (isDismissed) return;
+    if (!owner || !repo) {
+      setStarCount(null);
+      return;
+    }
 
     // Check cache first
     try {
-      const cached = localStorage.getItem(CACHE_KEY);
+      const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const parsed: CachedStars = JSON.parse(cached);
         if (Date.now() - parsed.timestamp < CACHE_TTL) {
@@ -45,7 +40,7 @@ export const useGitHubStars = (owner: string, repo: string) => {
         if (typeof count === 'number') {
           setStarCount(count);
           try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify({ count, timestamp: Date.now() }));
+            localStorage.setItem(cacheKey, JSON.stringify({ count, timestamp: Date.now() }));
           } catch {
             // ignore
           }
@@ -56,16 +51,7 @@ export const useGitHubStars = (owner: string, repo: string) => {
     };
 
     void fetchStars();
-  }, [owner, repo, isDismissed]);
-
-  const dismiss = useCallback(() => {
-    setIsDismissed(true);
-    try {
-      localStorage.setItem(DISMISS_KEY, 'true');
-    } catch {
-      // ignore
-    }
-  }, []);
+  }, [cacheKey, owner, repo]);
 
   const formattedCount = starCount !== null
     ? starCount >= 1000
@@ -73,5 +59,5 @@ export const useGitHubStars = (owner: string, repo: string) => {
       : `${starCount}`
     : null;
 
-  return { starCount, formattedCount, isDismissed, dismiss };
+  return { starCount, formattedCount };
 };

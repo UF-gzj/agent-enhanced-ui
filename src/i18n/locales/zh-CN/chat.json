@@ -248,6 +248,227 @@
   "projectSelection": {
     "startChatWithProvider": "选择一个项目以开始与 {{provider}} 聊天"
   },
+  "conversationMode": {
+    "chat": "普通对话",
+    "harness": "Harness 流程",
+    "toggleTitle": "切换普通对话与 Harness 流程",
+    "disabledNoClaude": "当前项目未启用团队共享系统，仅支持普通聊天。",
+    "disabledGeneric": "当前无法启用 Harness 流程。",
+    "disabledWithReason": "当前无法启用 Harness 流程：{{reason}}",
+    "bannerHarness": "Harness 流程已启用。团队流程命令会通过共享的 Harness 流水线执行。",
+    "bannerChatAvailable": "当前为普通对话模式。切到 Harness 流程后，可执行团队流程命令。",
+    "commandRequiresHarness": "这是团队流程命令。请先切换到 Harness 流程后再执行。",
+    "freeformBlocked": "当前 Harness 入口只接受团队共享系统的流程命令。请使用受支持的流程命令继续。",
+    "dropImages": "将图片拖到这里",
+    "taskBanner": {
+      "task": "当前任务: {{value}}",
+      "stage": " · 当前阶段: {{value}}",
+      "status": " · 当前状态: {{value}}",
+      "prime": " · Prime: {{value}}",
+      "review": " · Review: {{value}}",
+      "validation": " · Validation: {{value}}"
+    }
+  },
+  "harness": {
+    "helpAriaLabel": "查看说明",
+    "actions": {
+      "refresh": "刷新",
+      "refreshingArtifacts": "刷新中...",
+      "refreshArtifacts": "刷新工件",
+      "markPassed": "标记通过",
+      "markFailed": "标记失败",
+      "approve": "批准",
+      "reject": "驳回",
+      "invalidateReview": "失效 Review",
+      "invalidateValidation": "失效 Validation",
+      "invalidateAll": "全部失效",
+      "createSeedDataset": "创建种子数据集",
+      "runSeedEval": "运行种子评估",
+      "createCheckpoint": "创建 Checkpoint",
+      "resume": "恢复",
+      "writeFeedback": "写入反馈",
+      "initProject": "初始化当前项目",
+      "processing": "处理中..."
+    },
+    "labels": {
+      "harnessAvailability": "Harness 可用性",
+      "primeState": "Prime 状态",
+      "currentTask": "当前任务",
+      "currentStage": "当前阶段",
+      "commandCount": "命令数",
+      "artifactCount": "工件数",
+      "taskId": "Task ID",
+      "taskStatus": "任务状态",
+      "currentStatus": "当前状态",
+      "updatedAt": "更新时间",
+      "taskTitle": "任务说明",
+      "review": "Review",
+      "validation": "Validation",
+      "humanDecision": "人工决策"
+    },
+    "workspace": {
+      "lastPrimedAt": "上次 primed 时间: {{value}}",
+      "staleReasons": "过期原因: {{value}}"
+    },
+    "currentTask": {
+      "empty": "当前项目还没有活跃的 Harness 任务。先在聊天区切到 Harness 流程并执行团队流程命令。",
+      "loading": "正在读取工作台状态..."
+    },
+    "packs": {
+      "empty": "暂无 Pack 版本信息。"
+    },
+    "commands": {
+      "empty": "当前项目没有可显示的 Harness 命令。",
+      "canonical": "Canonical: {{value}}",
+      "preconditions": "前置条件: {{value}}",
+      "artifacts": "工件: {{value}}"
+    },
+    "timeline": {
+      "empty": "当前还没有 timeline 记录。",
+      "packVersion": "pack v{{value}}",
+      "blockers": "阻塞项: {{value}}"
+    },
+    "artifacts": {
+      "empty": "当前还没有扫描到工件。",
+      "updatedAt": "更新时间: {{value}}"
+    },
+    "gate": {
+      "reviewActions": "Review 操作",
+      "validationActions": "Validation 操作",
+      "humanActions": "Human Gate 操作",
+      "invalidateActions": "失效操作"
+    },
+    "runs": {
+      "empty": "当前还没有 reviewer / validator / main 的运行记录。",
+      "modelResolution": "模型: {{provider}} / {{lane}} / {{mode}}"
+    },
+    "benchmark": {
+      "datasetSummary": "dataset: {{datasets}} / results: {{results}}",
+      "currentDataset": "当前 benchmark dataset",
+      "noDataset": "暂无 dataset",
+      "datasetId": "datasetId: {{value}}",
+      "rounds": "轮次",
+      "m19Gate": "M19 门槛",
+      "m20Gate": "M20 门槛",
+      "m21Gate": "M21 门槛",
+      "direction": "方向一致性",
+      "claim": "Claim 状态",
+      "empty": "当前还没有 benchmark 结果。",
+      "createDatasetFirst": "请先创建 benchmark dataset"
+    },
+    "checkpoint": {
+      "empty": "当前任务还没有 checkpoint。"
+    },
+    "feedback": {
+      "empty": "当前项目还没有 feedback 记录。"
+    },
+    "bootstrap": {
+      "empty": "你可以在这里把没有 `.claude` 的项目升级成可进入 Harness 的项目。",
+      "createdFilesCount": "创建文件数",
+      "noNewFiles": "无新增文件"
+    },
+    "sections": {
+      "workspace": {
+        "title": "Workspace 状态条",
+        "helpLine1": "这是项目级总状态。",
+        "helpLine2": "重点看 4 件事：这个项目能不能用 Harness、Prime 有没有过期、当前活跃任务是谁、当前任务停在什么阶段。"
+      },
+      "currentTask": {
+        "title": "当前任务",
+        "helpLine1": "这里看的是当前项目正在执行的那条 Harness 任务。",
+        "helpLine2": "如果你想知道任务卡在哪一步、现在是 fresh 还是 blocked、Gate 有没有卡住，就看这里。"
+      },
+      "packs": {
+        "title": "Pack 版本",
+        "helpLine1": "Pack 是给子线程看的临时交接包。",
+        "helpLine2": "这里能看 reviewer、validator 等角色读取的是第几版 pack，以及这份 pack 现在是不是 fresh、stale 或 invalidated。"
+      },
+      "commands": {
+        "title": "Command Registry",
+        "helpLine1": "这是团队命令注册表。",
+        "helpLine2": "它告诉你当前项目有哪些命令、命令归属哪个阶段、执行前置条件是什么、会产出哪些工件。"
+      },
+      "timeline": {
+        "title": "Timeline",
+        "helpLine1": "这是任务执行时间线。",
+        "helpLine2": "用来回答“谁在什么时候做了什么”“基于哪版 pack 做的”“为什么通过或失败”。"
+      },
+      "artifacts": {
+        "title": "Artifact Workbench",
+        "helpLine1": "这里是正式工件工作台。",
+        "helpLine2": "plan、review、report、feedback 这类长期文档都归这里管。它和 Pack 的区别是：Artifact 是长期真相，Pack 是临时交接。"
+      },
+      "gate": {
+        "title": "Gate 详情",
+        "helpLine1": "Gate 就是放行口。",
+        "helpLine2": "Review、Validation、Human Decision 三条线要在这里汇总。只要有一条失败或失效，这个任务就不能算真正通过。"
+      },
+      "runs": {
+        "title": "最近运行记录",
+        "helpLine1": "这里看的是 main、reviewer、validator 最近几次真实运行。",
+        "helpLine2": "重点用来排查：到底谁跑过、跑在哪个阶段、用的是哪种模型解析结果、最后结论是什么。"
+      },
+      "benchmark": {
+        "title": "Benchmark Dashboard",
+        "helpLine1": "这是量化评估面板。",
+        "helpLine2": "用来证明 Harness 到底有没有提高 AI 写代码成功率，而不是只靠感觉。这里会展示 benchmark dataset、评估结果和 M19-M27 等指标。"
+      },
+      "checkpoint": {
+        "title": "Checkpoint / Resume",
+        "helpLine1": "Checkpoint 是任务快照。",
+        "helpLine2": "你可以把某个时刻的任务状态存下来，后面再恢复，避免长任务中断后完全丢进度。"
+      },
+      "feedback": {
+        "title": "Knowledge Feedback",
+        "helpLine1": "这里写的是“被证明有用的经验反馈”。",
+        "helpLine2": "它不会直接改正式规则，而是先把这次任务里学到的经验作为候选知识存下来，后面再决定要不要升格成长期知识。"
+      },
+      "bootstrap": {
+        "title": "Bootstrap / Template",
+        "helpLine1": "这是初始化入口。",
+        "helpLine2": "如果一个项目还没有 `.claude` 团队共享系统，可以从这里快速补齐最小骨架，让它进入 Harness 工作流。"
+      }
+    },
+    "help": {
+      "seedDatasetLine1": "种子数据集就是一批“拿来做基准评测的样题”。",
+      "seedDatasetLine2": "它不是业务数据，而是 benchmark 的起点。先有这批样题，后面才能反复跑 baseline 和 harness 结果，比较谁更准。",
+      "runSeedEvalLine1": "这一步会拿当前数据集去跑评估结果。",
+      "runSeedEvalLine2": "跑完后你就能看到通过率、首轮验证率、幻觉率等指标是不是达到门槛。",
+      "createCheckpoint": "把当前任务、Gate、Pack 和时间点保存成一个可恢复快照。",
+      "writeFeedback": "把当前任务里已经验证过的经验写成知识反馈记录，供后续任务复用。",
+      "initProject": "为当前项目生成最小 `.claude` 骨架，让它从普通聊天项目升级成可用 Harness 的项目。"
+    },
+    "values": {
+      "unknown": "未知",
+      "none": "无",
+      "no_new_files": "无新增文件",
+      "available": "可用",
+      "unavailable_no_claude": "缺少 .claude",
+      "unavailable_project_unknown": "项目未知",
+      "primed": "已 primed",
+      "unprimed": "未 primed",
+      "stale": "已过期",
+      "blocked": "阻塞中",
+      "idle": "空闲",
+      "ready": "就绪",
+      "pending": "待处理",
+      "invalidated": "已失效",
+      "passed": "通过",
+      "failed": "失败",
+      "approved": "已批准",
+      "rejected": "已驳回",
+      "not_required": "不需要",
+      "met": "达标",
+      "not_met": "未达标",
+      "consistent": "一致",
+      "eligible": "可声明",
+      "not_ready": "未就绪",
+      "bound": "已绑定",
+      "reference": "参考层",
+      "fresh": "最新",
+      "completed": "已完成"
+    }
+  },
   "tasks": {
     "nextTaskPrompt": "开始下一个任务"
   }

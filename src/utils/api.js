@@ -222,6 +222,10 @@ export const api = {
       }),
   },
 
+  settings: {
+    appRepository: () => authenticatedFetch('/api/settings/app-repository'),
+  },
+
   // Generic GET method for any endpoint
   get: (endpoint) => authenticatedFetch(`/api${endpoint}`),
 

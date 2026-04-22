@@ -57,6 +57,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     submitCodexMcpForm,
     handleCodexMcpDelete,
     providerAuthStatus,
+    harnessSubagentSettings,
+    setHarnessSelectedProvider,
+    updateHarnessSubagentConfig,
     geminiPermissionMode,
     setGeminiPermissionMode,
     openLoginForProvider,
@@ -102,7 +105,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   const isAuthenticated = Boolean(loginProvider && providerAuthStatus[loginProvider].authenticated);
 
   return (
-    <div className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
+    <div
+      data-testid="settings-modal"
+      className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4"
+    >
       <div className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
         {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">
@@ -169,6 +175,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onOpenCodexMcpForm={openCodexMcpForm}
                   onDeleteCodexMcpServer={handleCodexMcpDelete}
                   deleteError={deleteError}
+                  harnessSubagentSettings={harnessSubagentSettings}
+                  onHarnessSelectedProviderChange={setHarnessSelectedProvider}
+                  onHarnessSubagentConfigChange={updateHarnessSubagentConfig}
                 />
               )}
 

@@ -40,6 +40,8 @@ import taskmasterRoutes from './routes/taskmaster.js';
 import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
+import harnessRoutes from './routes/harness.js';
+import { closeAllTaskProjectWatchers } from './harness/task-watch-service.js';
 import agentRoutes from './routes/agent.js';
 import projectsRoutes, { WORKSPACES_ROOT, validateWorkspacePath } from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
@@ -303,6 +305,9 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
+
+// Harness API Routes (protected)
+app.use('/api/harness', authenticateToken, harnessRoutes);
 
 // CLI Authentication API Routes (protected)
 app.use('/api/cli', authenticateToken, cliAuthRoutes);
@@ -582,6 +587,30 @@ const expandWorkspacePath = (inputPath) => {
     return inputPath;
 };
 
+const getWindowsDriveSuggestions = async () => {
+    if (process.platform !== 'win32') {
+        return [];
+    }
+
+    const driveSuggestions = await Promise.all(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(async (letter) => {
+            const drivePath = `${letter}:\\`;
+            try {
+                await fsPromises.access(drivePath);
+                return {
+                    path: drivePath,
+                    name: `${letter}:`,
+                    type: 'directory'
+                };
+            } catch {
+                return null;
+            }
+        })
+    );
+
+    return driveSuggestions.filter(Boolean);
+};
+
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
@@ -634,7 +663,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
                 return a.name.localeCompare(b.name);
             });
 
-        // Add common directories if browsing home directory
+        // Add common directories if browsing the default root.
         const suggestions = [];
         let resolvedWorkspaceRoot = defaultRoot;
         try {
@@ -643,11 +672,12 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             // Use default root as-is if realpath fails
         }
         if (resolvedPath === resolvedWorkspaceRoot) {
+            const driveSuggestions = await getWindowsDriveSuggestions();
             const commonDirs = ['Desktop', 'Documents', 'Projects', 'Development', 'Dev', 'Code', 'workspace'];
             const existingCommon = directories.filter(dir => commonDirs.includes(dir.name));
             const otherDirs = directories.filter(dir => !commonDirs.includes(dir.name));
 
-            suggestions.push(...existingCommon, ...otherDirs);
+            suggestions.push(...driveSuggestions, ...existingCommon, ...otherDirs);
         } else {
             suggestions.push(...directories);
         }
@@ -2349,6 +2379,7 @@ async function startServer() {
 
         // Clean up plugin processes on shutdown
         const shutdownPlugins = async () => {
+            await closeAllTaskProjectWatchers();
             await stopAllPlugins();
             process.exit(0);
         };

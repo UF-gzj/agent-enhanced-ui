@@ -266,6 +266,227 @@
   "projectSelection": {
     "startChatWithProvider": "Select a project to start chatting with {{provider}}"
   },
+  "conversationMode": {
+    "chat": "Chat",
+    "harness": "Harness Flow",
+    "toggleTitle": "Switch between chat mode and Harness flow",
+    "disabledNoClaude": "This project has not enabled the shared .claude workspace system. Only regular chat is available.",
+    "disabledGeneric": "Harness flow is currently unavailable.",
+    "disabledWithReason": "Harness flow is currently unavailable: {{reason}}",
+    "bannerHarness": "Harness flow is enabled. Team workflow commands will run through the shared Harness pipeline.",
+    "bannerChatAvailable": "You are in chat mode. Switch to Harness flow to run the shared team workflow commands.",
+    "commandRequiresHarness": "This is a team workflow command. Switch to Harness flow before running it.",
+    "freeformBlocked": "The current Harness entry accepts shared team workflow commands. Use a supported workflow command to continue.",
+    "dropImages": "Drop images here",
+    "taskBanner": {
+      "task": "Current task: {{value}}",
+      "stage": " · Stage: {{value}}",
+      "status": " · Status: {{value}}",
+      "prime": " · Prime: {{value}}",
+      "review": " · Review: {{value}}",
+      "validation": " · Validation: {{value}}"
+    }
+  },
+  "harness": {
+    "helpAriaLabel": "Show help",
+    "actions": {
+      "refresh": "Refresh",
+      "refreshingArtifacts": "Refreshing...",
+      "refreshArtifacts": "Refresh artifacts",
+      "markPassed": "Mark passed",
+      "markFailed": "Mark failed",
+      "approve": "Approve",
+      "reject": "Reject",
+      "invalidateReview": "Invalidate review",
+      "invalidateValidation": "Invalidate validation",
+      "invalidateAll": "Invalidate all",
+      "createSeedDataset": "Create seed dataset",
+      "runSeedEval": "Run seed eval",
+      "createCheckpoint": "Create checkpoint",
+      "resume": "Resume",
+      "writeFeedback": "Write feedback",
+      "initProject": "Initialize current project",
+      "processing": "Processing..."
+    },
+    "labels": {
+      "harnessAvailability": "Harness availability",
+      "primeState": "Prime state",
+      "currentTask": "Current task",
+      "currentStage": "Current stage",
+      "commandCount": "Command count",
+      "artifactCount": "Artifact count",
+      "taskId": "Task ID",
+      "taskStatus": "Task state",
+      "currentStatus": "Current summary",
+      "updatedAt": "Updated at",
+      "taskTitle": "Task summary",
+      "review": "Review",
+      "validation": "Validation",
+      "humanDecision": "Human decision"
+    },
+    "workspace": {
+      "lastPrimedAt": "Last primed at: {{value}}",
+      "staleReasons": "Stale reasons: {{value}}"
+    },
+    "currentTask": {
+      "empty": "There is no active Harness task in this project yet. Switch the chat area to Harness flow and run a team workflow command first.",
+      "loading": "Loading workbench status..."
+    },
+    "packs": {
+      "empty": "No pack versions yet."
+    },
+    "commands": {
+      "empty": "No Harness commands are available for this project.",
+      "canonical": "Canonical: {{value}}",
+      "preconditions": "Preconditions: {{value}}",
+      "artifacts": "Artifacts: {{value}}"
+    },
+    "timeline": {
+      "empty": "No timeline records yet.",
+      "packVersion": "pack v{{value}}",
+      "blockers": "Blockers: {{value}}"
+    },
+    "artifacts": {
+      "empty": "No artifacts have been scanned yet.",
+      "updatedAt": "Updated: {{value}}"
+    },
+    "gate": {
+      "reviewActions": "Review actions",
+      "validationActions": "Validation actions",
+      "humanActions": "Human gate actions",
+      "invalidateActions": "Invalidate actions"
+    },
+    "runs": {
+      "empty": "There are no main / reviewer / validator run records yet.",
+      "modelResolution": "model: {{provider}} / {{lane}} / {{mode}}"
+    },
+    "benchmark": {
+      "datasetSummary": "datasets: {{datasets}} / results: {{results}}",
+      "currentDataset": "Current benchmark dataset",
+      "noDataset": "No dataset yet",
+      "datasetId": "datasetId: {{value}}",
+      "rounds": "Rounds",
+      "m19Gate": "M19 gate",
+      "m20Gate": "M20 gate",
+      "m21Gate": "M21 gate",
+      "direction": "Direction",
+      "claim": "Claim",
+      "empty": "No benchmark results yet.",
+      "createDatasetFirst": "Create a benchmark dataset first."
+    },
+    "checkpoint": {
+      "empty": "This task has no checkpoint yet."
+    },
+    "feedback": {
+      "empty": "There is no feedback record for this project yet."
+    },
+    "bootstrap": {
+      "empty": "You can upgrade a project without .claude into a Harness-enabled project from here.",
+      "createdFilesCount": "Created files",
+      "noNewFiles": "No new files"
+    },
+    "sections": {
+      "workspace": {
+        "title": "Workspace Status",
+        "helpLine1": "This is the project-level status strip.",
+        "helpLine2": "Use it to check whether Harness is available, whether Prime is stale, which task is active, and which stage the task is currently in."
+      },
+      "currentTask": {
+        "title": "Current Task",
+        "helpLine1": "This section shows the Harness task currently running for the project.",
+        "helpLine2": "If you want to know which stage is blocked, whether the task is fresh or blocked, or whether the gate is stuck, start here."
+      },
+      "packs": {
+        "title": "Pack Versions",
+        "helpLine1": "Packs are temporary handoff bundles for sub-agents.",
+        "helpLine2": "This section shows which pack versions reviewer and validator are reading, and whether each pack is fresh, stale, or invalidated."
+      },
+      "commands": {
+        "title": "Command Registry",
+        "helpLine1": "This is the shared command registry.",
+        "helpLine2": "It tells you which commands exist in the project, which stage they belong to, what their preconditions are, and which artifacts they write."
+      },
+      "timeline": {
+        "title": "Timeline",
+        "helpLine1": "This is the task execution timeline.",
+        "helpLine2": "Use it to answer who did what, when it happened, which pack version was used, and why the step passed or failed."
+      },
+      "artifacts": {
+        "title": "Artifact Workbench",
+        "helpLine1": "This is the long-term artifact workbench.",
+        "helpLine2": "Plans, reviews, reports, and feedback belong here. Artifacts are long-term truth; Packs are temporary handoffs."
+      },
+      "gate": {
+        "title": "Gate Details",
+        "helpLine1": "The gate is the final pass/fail checkpoint.",
+        "helpLine2": "Review, validation, and human decision are summarized here. If any lane fails or is invalidated, the task is not truly done."
+      },
+      "runs": {
+        "title": "Recent Runs",
+        "helpLine1": "This shows the recent real runs for main, reviewer, and validator.",
+        "helpLine2": "Use it to trace who ran, at which stage, how the model was resolved, and what conclusion came back."
+      },
+      "benchmark": {
+        "title": "Benchmark Dashboard",
+        "helpLine1": "This is the quantitative evaluation panel.",
+        "helpLine2": "It exists to prove whether Harness actually improves AI coding outcomes instead of relying on intuition. It shows datasets, results, and metrics such as M19-M27."
+      },
+      "checkpoint": {
+        "title": "Checkpoint / Resume",
+        "helpLine1": "A checkpoint is a task snapshot.",
+        "helpLine2": "You can save the task state at a point in time and resume it later so long-running tasks do not lose all progress."
+      },
+      "feedback": {
+        "title": "Knowledge Feedback",
+        "helpLine1": "This area stores experience that has been proven useful.",
+        "helpLine2": "It does not directly rewrite the official rules. Instead it saves the learned experience as candidate knowledge first, then lets you decide whether it should be promoted."
+      },
+      "bootstrap": {
+        "title": "Bootstrap / Template",
+        "helpLine1": "This is the initialization entry.",
+        "helpLine2": "If a project does not have the shared .claude workspace system yet, use this to generate a minimal skeleton and let it enter the Harness workflow."
+      }
+    },
+    "help": {
+      "seedDatasetLine1": "A seed dataset is a fixed batch of benchmark sample tasks.",
+      "seedDatasetLine2": "It is not your business data. It is the benchmark starting point used to compare baseline and Harness runs over time.",
+      "runSeedEvalLine1": "This runs an evaluation on the current dataset.",
+      "runSeedEvalLine2": "After it finishes you can see whether pass rate, first-pass validation rate, and hallucination rate have met the target thresholds.",
+      "createCheckpoint": "Save the current task, gate, pack, and timestamp as a recoverable snapshot.",
+      "writeFeedback": "Write verified experience from the current task as a reusable knowledge feedback record.",
+      "initProject": "Generate a minimal .claude skeleton for the current project so it can move from normal chat into Harness."
+    },
+    "values": {
+      "unknown": "Unknown",
+      "none": "None",
+      "no_new_files": "No new files",
+      "available": "Available",
+      "unavailable_no_claude": "No .claude",
+      "unavailable_project_unknown": "Project unknown",
+      "primed": "Primed",
+      "unprimed": "Unprimed",
+      "stale": "Stale",
+      "blocked": "Blocked",
+      "idle": "Idle",
+      "ready": "Ready",
+      "pending": "Pending",
+      "invalidated": "Invalidated",
+      "passed": "Passed",
+      "failed": "Failed",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "not_required": "Not required",
+      "met": "Met",
+      "not_met": "Not met",
+      "consistent": "Consistent",
+      "eligible": "Eligible",
+      "not_ready": "Not ready",
+      "bound": "Bound",
+      "reference": "Reference",
+      "fresh": "Fresh",
+      "completed": "Completed"
+    }
+  },
   "tasks": {
     "nextTaskPrompt": "Start the next task"
   }

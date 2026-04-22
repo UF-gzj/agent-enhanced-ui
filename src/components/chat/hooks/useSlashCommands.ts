@@ -17,6 +17,107 @@ export interface SlashCommand {
   [key: string]: unknown;
 }
 
+const HARNESS_COMMAND_PREFIXES = ['/core/', '/validation/', '/bugfix/'];
+const HARNESS_COMMAND_NAMES = new Set([
+  '/prim',
+  '/pinit',
+  '/refr',
+  '/bref',
+  '/pln',
+  '/exec',
+  '/iter',
+  '/rca',
+  '/fix',
+  '/vald',
+  '/revu',
+  '/xrep',
+  '/srev',
+  '/cmit',
+  '/commit',
+]);
+
+const normalizeCommandIdentifier = (value: string) => {
+  if (!value) {
+    return value;
+  }
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  return withLeadingSlash.replace(/:/g, '/').replace(/\/+/g, '/');
+};
+
+export const isHarnessCommand = (command: SlashCommand): boolean => {
+  if (command.type === 'built-in') {
+    return false;
+  }
+
+  if (HARNESS_COMMAND_NAMES.has(command.name)) {
+    return true;
+  }
+
+  return HARNESS_COMMAND_PREFIXES.some((prefix) => command.name.startsWith(prefix));
+};
+
+export const normalizeSlashCommandsResponse = (data: { builtIn?: SlashCommand[]; custom?: SlashCommand[] }) => {
+  const normalizedCustomCommands = ((data.custom || []) as SlashCommand[]).map((command) => {
+    const canonicalName =
+      typeof command.metadata?.alias_for === 'string'
+        ? normalizeCommandIdentifier(command.metadata.alias_for)
+        : normalizeCommandIdentifier(command.name);
+    return {
+      ...command,
+      type: 'custom',
+      metadata: {
+        ...(command.metadata || {}),
+        canonicalName,
+        requiresHarness: isHarnessCommand(command),
+      },
+    };
+  });
+
+  const dedupedCustomCommands = normalizedCustomCommands.reduce<SlashCommand[]>((bucket, command) => {
+    const canonicalName =
+      typeof command.metadata?.canonicalName === 'string'
+        ? normalizeCommandIdentifier(command.metadata.canonicalName)
+        : normalizeCommandIdentifier(command.name);
+    const existingIndex = bucket.findIndex((existingCommand) => {
+      const existingCanonicalName =
+        typeof existingCommand.metadata?.canonicalName === 'string'
+          ? normalizeCommandIdentifier(existingCommand.metadata.canonicalName)
+          : normalizeCommandIdentifier(existingCommand.name);
+      return existingCanonicalName === canonicalName;
+    });
+
+    if (existingIndex === -1) {
+      bucket.push(command);
+      return bucket;
+    }
+
+    const existingCommand = bucket[existingIndex];
+    const existingMetadata = (existingCommand.metadata || {}) as Record<string, unknown>;
+    const nextMetadata = (command.metadata || {}) as Record<string, unknown>;
+    const existingIsAlias = typeof existingMetadata.alias_for === 'string';
+    const nextIsAlias = typeof nextMetadata.alias_for === 'string';
+
+    if (existingIsAlias && !nextIsAlias) {
+      bucket[existingIndex] = command;
+    }
+
+    return bucket;
+  }, []);
+
+  return [
+    ...((data.builtIn || []) as SlashCommand[]).map((command) => ({
+      ...command,
+      type: 'built-in',
+      metadata: {
+        ...(command.metadata || {}),
+        requiresHarness: false,
+      },
+    })),
+    ...dedupedCustomCommands,
+  ];
+};
+
 interface UseSlashCommandsOptions {
   selectedProject: Project | null;
   input: string;
@@ -103,16 +204,7 @@ export function useSlashCommands({
         }
 
         const data = await response.json();
-        const allCommands: SlashCommand[] = [
-          ...((data.builtIn || []) as SlashCommand[]).map((command) => ({
-            ...command,
-            type: 'built-in',
-          })),
-          ...((data.custom || []) as SlashCommand[]).map((command) => ({
-            ...command,
-            type: 'custom',
-          })),
-        ];
+        const allCommands = normalizeSlashCommandsResponse(data);
 
         const parsedHistory = readCommandHistory(selectedProject.name);
         const sortedCommands = [...allCommands].sort((commandA, commandB) => {
@@ -332,8 +424,18 @@ export function useSlashCommands({
 
       if (event.key === 'Tab' || event.key === 'Enter') {
         event.preventDefault();
+        const cursorPos = event.currentTarget.selectionStart ?? event.currentTarget.value.length;
+        const textBeforeCursor = event.currentTarget.value.slice(0, cursorPos);
+        const exactMatch = textBeforeCursor.match(/(^|\s)\/(\S*)$/);
+        const exactTypedCommand =
+          exactMatch && exactMatch[2]
+            ? slashCommands.find((command) => command.name === `/${exactMatch[2]}`)
+            : null;
+
         if (selectedCommandIndex >= 0) {
           selectCommandFromKeyboard(filteredCommands[selectedCommandIndex]);
+        } else if (exactTypedCommand) {
+          selectCommandFromKeyboard(exactTypedCommand);
         } else if (filteredCommands.length > 0) {
           selectCommandFromKeyboard(filteredCommands[0]);
         }
@@ -348,7 +450,7 @@ export function useSlashCommands({
 
       return false;
     },
-    [showCommandMenu, filteredCommands, resetCommandMenuState, selectCommandFromKeyboard, selectedCommandIndex],
+    [showCommandMenu, filteredCommands, resetCommandMenuState, selectCommandFromKeyboard, selectedCommandIndex, slashCommands],
   );
 
   useEffect(

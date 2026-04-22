@@ -3,6 +3,7 @@ import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
 import GitPanel from '../../git-panel/view/GitPanel';
+import HarnessPanel from '../../harness/HarnessPanel';
 import PluginTabContent from '../../plugins/view/PluginTabContent';
 import type { MainContentProps } from '../types/types';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
@@ -137,6 +138,12 @@ function MainContent({
               />
             </ErrorBoundary>
           </div>
+
+          {activeTab === 'harness' && (
+            <div className="h-full overflow-hidden">
+              <HarnessPanel selectedProject={selectedProject} isVisible={activeTab === 'harness'} />
+            </div>
+          )}
 
           {activeTab === 'files' && (
             <div className="h-full overflow-hidden">

@@ -12,6 +12,11 @@ import type {
   TouchEvent,
 } from 'react';
 import type { PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
+import type {
+  HarnessAvailability,
+  HarnessGateState,
+  HarnessTaskSummaryState,
+} from '../../../../types/app';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
@@ -46,6 +51,15 @@ interface ChatComposerProps {
   provider: Provider | string;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
+  conversationMode: 'chat' | 'harness';
+  harnessAvailability: HarnessAvailability;
+  harnessAvailabilityReason: string | null;
+  activeHarnessTaskId: string | null;
+  activeHarnessStage: string | null;
+  taskSummaryState: HarnessTaskSummaryState;
+  activePrimeState: 'unprimed' | 'primed' | 'stale';
+  activeHarnessGate: HarnessGateState | null;
+  onConversationModeToggle: () => void;
   thinkingMode: string;
   setThinkingMode: Dispatch<SetStateAction<string>>;
   tokenBudget: { used?: number; total?: number } | null;
@@ -102,6 +116,15 @@ export default function ChatComposer({
   provider,
   permissionMode,
   onModeSwitch,
+  conversationMode,
+  harnessAvailability,
+  harnessAvailabilityReason,
+  activeHarnessTaskId,
+  activeHarnessStage,
+  taskSummaryState,
+  activePrimeState,
+  activeHarnessGate,
+  onConversationModeToggle,
   thinkingMode,
   setThinkingMode,
   tokenBudget,
@@ -167,7 +190,6 @@ export default function ChatComposer({
   const mobileFloatingClass = isInputFocused
     ? 'max-sm:fixed max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:z-50 max-sm:bg-background max-sm:shadow-[0_-4px_20px_rgba(0,0,0,0.15)]'
     : '';
-
   return (
     <div className={`flex-shrink-0 p-2 pb-2 sm:p-4 sm:pb-4 md:p-4 md:pb-6 ${mobileFloatingClass}`}>
       {!hasPendingPermissions && (
@@ -194,6 +216,10 @@ export default function ChatComposer({
           provider={provider}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
+          conversationMode={conversationMode}
+          harnessAvailability={harnessAvailability}
+          harnessAvailabilityReason={harnessAvailabilityReason}
+          onConversationModeToggle={onConversationModeToggle}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={onToggleCommandMenu}
@@ -203,6 +229,47 @@ export default function ChatComposer({
           hasMessages={hasMessages}
           onScrollToBottom={onScrollToBottom}
         />}
+
+        {!hasQuestionPanel && (
+          <div
+            data-testid="conversation-mode-banner"
+            className="mt-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+          >
+            {conversationMode === 'harness'
+              ? t('conversationMode.bannerHarness')
+              : harnessAvailability === 'available'
+                ? t('conversationMode.bannerChatAvailable')
+                : harnessAvailability === 'unavailable_no_claude'
+                  ? t('conversationMode.disabledNoClaude')
+                  : harnessAvailabilityReason || t('conversationMode.disabledGeneric')}
+          </div>
+        )}
+
+        {activeHarnessTaskId && (
+          <div
+            data-testid="active-harness-task-banner"
+            className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary"
+          >
+            {t('conversationMode.taskBanner.task', { value: activeHarnessTaskId })}
+            {activeHarnessStage
+              ? t('conversationMode.taskBanner.stage', { value: activeHarnessStage })
+              : ''}
+            {taskSummaryState
+              ? t('conversationMode.taskBanner.status', { value: taskSummaryState })
+              : ''}
+            {activePrimeState
+              ? t('conversationMode.taskBanner.prime', { value: activePrimeState })
+              : ''}
+            {activeHarnessGate?.reviewStatus
+              ? t('conversationMode.taskBanner.review', { value: activeHarnessGate.reviewStatus })
+              : ''}
+            {activeHarnessGate?.validationStatus
+              ? t('conversationMode.taskBanner.validation', {
+                  value: activeHarnessGate.validationStatus,
+                })
+              : ''}
+          </div>
+        )}
       </div>
 
       {!hasQuestionPanel && <form onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void} className="relative mx-auto max-w-4xl">
@@ -217,7 +284,7 @@ export default function ChatComposer({
                   d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                 />
               </svg>
-              <p className="text-sm font-medium">Drop images here</p>
+              <p className="text-sm font-medium">{t('conversationMode.dropImages')}</p>
             </div>
           </div>
         )}
@@ -291,6 +358,7 @@ export default function ChatComposer({
           <div className="relative z-10">
             <textarea
               ref={textareaRef}
+              data-testid="chat-input-textarea"
               value={input}
               onChange={onInputChange}
               onClick={onTextareaClick}
@@ -308,6 +376,7 @@ export default function ChatComposer({
             <button
               type="button"
               onClick={openImagePicker}
+              data-testid="image-attach-button"
               className="absolute left-2 top-1/2 -translate-y-1/2 transform rounded-xl p-2 transition-colors hover:bg-accent/60"
               title={t('input.attachImages')}
             >
@@ -324,6 +393,7 @@ export default function ChatComposer({
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
+              data-testid="chat-send-button"
               onMouseDown={(event) => {
                 event.preventDefault();
                 onSubmit(event);
@@ -340,7 +410,7 @@ export default function ChatComposer({
             </button>
 
             <div
-              className={`pointer-events-none absolute bottom-1 left-12 right-14 hidden text-xs text-muted-foreground/50 transition-opacity duration-200 sm:right-40 sm:block ${
+              className={`pointer-events-none absolute bottom-1 left-12 right-14 hidden text-xs text-muted-foreground/50 transition-opacity duration-200 sm:block ${
                 input.trim() ? 'opacity-0' : 'opacity-100'
               }`}
             >

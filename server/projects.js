@@ -1575,6 +1575,10 @@ async function parseCodexSessionFile(filePath) {
     return null;
 
   } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+
     console.error('Error parsing Codex session file:', error);
     return null;
   }

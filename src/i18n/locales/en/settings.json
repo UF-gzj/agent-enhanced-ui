@@ -333,7 +333,18 @@
       "button": "Login",
       "reLoginButton": "Re-login"
     },
-    "error": "Error: {{error}}"
+    "error": "Error: {{error}}",
+    "harness": {
+      "title": "Harness Subagent Models",
+      "description": "Select the provider used by reviewer and validator. Only Claude Code currently supports subagent model overrides.",
+      "providerLabel": "Agent Provider",
+      "reviewerLabel": "Reviewer Model",
+      "validatorLabel": "Validator Model",
+      "inherit": "Inherit main model",
+      "unsupported": "Unsupported",
+      "modelSource": "Model Source: {{value}}",
+      "reference": "Reference: {{value}}"
+    }
   },
   "permissions": {
     "title": "Permission Settings",

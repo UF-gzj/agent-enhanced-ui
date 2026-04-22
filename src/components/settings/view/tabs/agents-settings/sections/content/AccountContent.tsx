@@ -2,12 +2,20 @@ import { LogIn } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button } from '../../../../../../../shared/view/ui';
 import SessionProviderLogo from '../../../../../../llm-logo-provider/SessionProviderLogo';
-import type { AgentProvider, AuthStatus } from '../../../../../types/types';
+import type { AgentProvider, AuthStatus, HarnessProviderSettingsMap, HarnessSubagentSettingsState } from '../../../../../types/types';
+import HarnessSubagentModelsSection from './HarnessSubagentModelsSection';
 
 type AccountContentProps = {
   agent: AgentProvider;
   authStatus: AuthStatus;
   onLogin: () => void;
+  harnessSubagentSettings: HarnessSubagentSettingsState;
+  onHarnessSelectedProviderChange: (provider: AgentProvider) => void;
+  onHarnessSubagentConfigChange: (
+    provider: AgentProvider,
+    role: 'reviewer' | 'validator',
+    model: string,
+  ) => void;
 };
 
 type AgentVisualConfig = {
@@ -56,9 +64,20 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
   },
 };
 
-export default function AccountContent({ agent, authStatus, onLogin }: AccountContentProps) {
+export default function AccountContent({
+  agent,
+  authStatus,
+  onLogin,
+  harnessSubagentSettings,
+  onHarnessSelectedProviderChange,
+  onHarnessSubagentConfigChange,
+}: AccountContentProps) {
   const { t } = useTranslation('settings');
   const config = agentConfig[agent];
+  const providerMap = harnessSubagentSettings.providers.reduce((accumulator, provider) => {
+    accumulator[provider.provider] = provider;
+    return accumulator;
+  }, {} as HarnessProviderSettingsMap);
 
   return (
     <div className="space-y-6">
@@ -140,6 +159,15 @@ export default function AccountContent({ agent, authStatus, onLogin }: AccountCo
           )}
         </div>
       </div>
+
+      <HarnessSubagentModelsSection
+        providers={providerMap}
+        selectedProvider={harnessSubagentSettings.selectedProvider}
+        loading={harnessSubagentSettings.loading}
+        error={harnessSubagentSettings.error}
+        onSelectedProviderChange={onHarnessSelectedProviderChange}
+        onSubagentConfigChange={onHarnessSubagentConfigChange}
+      />
     </div>
   );
 }

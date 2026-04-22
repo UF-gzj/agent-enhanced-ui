@@ -1,0 +1,62 @@
+[
+  {
+    "feedbackId": "feedback_1776760409613_3c513c5e",
+    "projectPath": "E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace",
+    "sourceTaskId": "task_1776760409392_5f6e45b7",
+    "targetLayer": "reference",
+    "title": "phase3 smoke feedback",
+    "summary": "phase3 smoke summary",
+    "evidencePaths": [],
+    "status": "recorded",
+    "createdAt": "2026-04-21T08:33:29.613Z",
+    "relativePath": ".claude/reference/feedback/feedback_1776760409613_3c513c5e.md"
+  },
+  {
+    "feedbackId": "feedback_1776760542318_0f2bd884",
+    "projectPath": "E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace",
+    "sourceTaskId": null,
+    "targetLayer": "reference",
+    "title": "phase3 knowledge feedback",
+    "summary": "phase3 knowledge feedback summary",
+    "evidencePaths": [],
+    "status": "recorded",
+    "createdAt": "2026-04-21T08:35:42.318Z",
+    "relativePath": ".claude/reference/feedback/feedback_1776760542318_0f2bd884.md"
+  },
+  {
+    "feedbackId": "feedback_1776760626718_0afc75f5",
+    "projectPath": "E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace",
+    "sourceTaskId": null,
+    "targetLayer": "reference",
+    "title": "phase3 knowledge feedback",
+    "summary": "phase3 knowledge feedback summary",
+    "evidencePaths": [],
+    "status": "recorded",
+    "createdAt": "2026-04-21T08:37:06.718Z",
+    "relativePath": ".claude/reference/feedback/feedback_1776760626718_0afc75f5.md"
+  },
+  {
+    "feedbackId": "feedback_1776761224031_6b570a7b",
+    "projectPath": "E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace",
+    "sourceTaskId": null,
+    "targetLayer": "reference",
+    "title": "phase3 knowledge feedback",
+    "summary": "phase3 knowledge feedback summary",
+    "evidencePaths": [],
+    "status": "recorded",
+    "createdAt": "2026-04-21T08:47:04.031Z",
+    "relativePath": ".claude/reference/feedback/feedback_1776761224031_6b570a7b.md"
+  },
+  {
+    "feedbackId": "feedback_1776761457660_5049ab57",
+    "projectPath": "E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace",
+    "sourceTaskId": null,
+    "targetLayer": "reference",
+    "title": "phase3 knowledge feedback",
+    "summary": "phase3 knowledge feedback summary",
+    "evidencePaths": [],
+    "status": "recorded",
+    "createdAt": "2026-04-21T08:50:57.660Z",
+    "relativePath": ".claude/reference/feedback/feedback_1776761457660_5049ab57.md"
+  }
+]

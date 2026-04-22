@@ -29,6 +29,9 @@ export default function AgentsSettingsTab({
   onDiscoverMcpTools,
   onOpenCodexMcpForm,
   onDeleteCodexMcpServer,
+  harnessSubagentSettings,
+  onHarnessSelectedProviderChange,
+  onHarnessSubagentConfigChange,
 }: AgentsSettingsTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('claude');
   const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
@@ -97,6 +100,9 @@ export default function AgentsSettingsTab({
           onDiscoverMcpTools={onDiscoverMcpTools}
           onOpenCodexMcpForm={onOpenCodexMcpForm}
           onDeleteCodexMcpServer={onDeleteCodexMcpServer}
+          harnessSubagentSettings={harnessSubagentSettings}
+          onHarnessSelectedProviderChange={onHarnessSelectedProviderChange}
+          onHarnessSubagentConfigChange={onHarnessSubagentConfigChange}
         />
       </div>
     </div>

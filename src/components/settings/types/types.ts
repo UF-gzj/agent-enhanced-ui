@@ -1,5 +1,10 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { LLMProvider } from '../../../types/app';
+import type {
+  HarnessProviderSettings,
+  HarnessSubagentSettingsResponse,
+  LLMProvider,
+  SubagentModelConfig,
+} from '../../../types/app';
 import type { ProviderAuthStatus } from '../../provider-auth/types';
 
 export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'tasks' | 'notifications' | 'plugins' | 'about';
@@ -132,6 +137,18 @@ export type SettingsStoragePayload = {
   claude: ClaudePermissionsState & { projectSortOrder: ProjectSortOrder; lastUpdated: string };
   cursor: CursorPermissionsState & { lastUpdated: string };
   codex: { permissionMode: CodexPermissionMode; lastUpdated: string };
+};
+
+export type HarnessSubagentSettingsState = HarnessSubagentSettingsResponse & {
+  loading: boolean;
+  error: string | null;
+};
+
+export type HarnessProviderSettingsMap = Record<AgentProvider, HarnessProviderSettings>;
+
+export type UpdateSubagentConfigPayload = {
+  provider: AgentProvider;
+  config: Partial<SubagentModelConfig>;
 };
 
 export type SettingsProps = {

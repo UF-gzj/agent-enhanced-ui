@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '../../../lib/utils';
 
 /* ── Container ─────────────────────────────────────────────────── */
@@ -21,11 +21,12 @@ type PillProps = {
   onClick: () => void;
   children: ReactNode;
   className?: string;
-};
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'children' | 'className'>;
 
-export function Pill({ isActive, onClick, children, className }: PillProps) {
+export function Pill({ isActive, onClick, children, className, ...buttonProps }: PillProps) {
   return (
     <button
+      {...buttonProps}
       onClick={onClick}
       className={cn(
         'flex touch-manipulation items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150',

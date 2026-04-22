@@ -134,6 +134,15 @@ function ChatInterface({
     isTextareaExpanded,
     thinkingMode,
     setThinkingMode,
+    conversationMode,
+    harnessAvailability,
+    harnessAvailabilityReason,
+    activeHarnessTaskId,
+    activeHarnessStage,
+    taskSummaryState,
+    activePrimeState,
+    activeHarnessGate,
+    handleConversationModeToggle,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
@@ -349,6 +358,15 @@ function ChatInterface({
           provider={provider}
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
+          conversationMode={conversationMode}
+          harnessAvailability={harnessAvailability}
+          harnessAvailabilityReason={harnessAvailabilityReason}
+          activeHarnessTaskId={activeHarnessTaskId}
+          activeHarnessStage={activeHarnessStage}
+          taskSummaryState={taskSummaryState}
+          activePrimeState={activePrimeState}
+          activeHarnessGate={activeHarnessGate}
+          onConversationModeToggle={handleConversationModeToggle}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
           tokenBudget={tokenBudget}

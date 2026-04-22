@@ -29,6 +29,7 @@ export default function AgentSelectorSection({
           return (
             <Pill
               key={agent}
+              data-testid={`agent-provider-${agent}`}
               isActive={selectedAgent === agent}
               onClick={() => onSelectAgent(agent)}
               className="min-w-0 flex-1 justify-center md:flex-initial"

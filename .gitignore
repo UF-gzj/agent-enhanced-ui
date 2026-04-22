@@ -92,6 +92,10 @@ jspm_packages/
 tmp/
 temp/
 .tmp/
+.tmp-*
+test-results/
+server/runtime/
+bash.exe.stackdump
 
 # Vite
 .vite/
@@ -110,6 +114,9 @@ temp/
 CLAUDE.md
 .mcp.json
 .gemini/
+!tests/e2e/fixtures/harness-workspace/.claude/
+!tests/e2e/fixtures/harness-workspace/.claude/**
+tests/e2e/fixtures/harness-workspace/.claude/runtime/
 
 # Database files
 *.db

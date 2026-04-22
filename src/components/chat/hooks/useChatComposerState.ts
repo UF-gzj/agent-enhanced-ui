@@ -10,6 +10,7 @@ import type {
   TouchEvent,
 } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useTranslation } from 'react-i18next';
 import { authenticatedFetch } from '../../../utils/api';
 import { thinkingModes } from '../constants/thinkingModes';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
@@ -19,10 +20,16 @@ import type {
   PendingPermissionRequest,
   PermissionMode,
 } from '../types/types';
-import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
+import type {
+  HarnessGateState,
+  HarnessTaskSummaryState,
+  Project,
+  ProjectSession,
+  LLMProvider,
+} from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
 import { useFileMentions } from './useFileMentions';
-import { type SlashCommand, useSlashCommands } from './useSlashCommands';
+import { normalizeSlashCommandsResponse, type SlashCommand, useSlashCommands } from './useSlashCommands';
 
 type PendingViewSession = {
   sessionId: string | null;
@@ -75,6 +82,32 @@ interface CommandExecutionResult {
   hasBashCommands?: boolean;
   hasFileIncludes?: boolean;
 }
+
+type HarnessProjectCapabilityResponse = {
+  projectPath?: string | null;
+  harnessAvailability?: 'available' | 'unavailable_no_claude' | 'unavailable_project_unknown';
+  reason?: string | null;
+};
+
+type ConversationMode = 'chat' | 'harness';
+
+const getConversationModeStorageKey = (projectName: string) => `conversation_mode_${projectName}`;
+
+const getHarnessAvailabilityMessage = (
+  t: (key: string, options?: Record<string, unknown>) => string,
+  availability: HarnessProjectCapabilityResponse['harnessAvailability'],
+  reason?: string | null,
+) => {
+  if (availability === 'unavailable_no_claude') {
+    return t('conversationMode.disabledNoClaude');
+  }
+
+  if (reason) {
+    return t('conversationMode.disabledWithReason', { reason });
+  }
+
+  return t('conversationMode.disabledGeneric');
+};
 
 const createFakeSubmitEvent = () => {
   return { preventDefault: () => undefined } as unknown as FormEvent<HTMLFormElement>;
@@ -133,6 +166,7 @@ export function useChatComposerState({
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
+  const { t } = useTranslation('chat');
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
       return safeLocalStorage.getItem(`draft_input_${selectedProject.name}`) || '';
@@ -144,6 +178,22 @@ export function useChatComposerState({
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [thinkingMode, setThinkingMode] = useState('none');
+  const [conversationMode, setConversationMode] = useState<ConversationMode>(() => {
+    if (typeof window !== 'undefined' && selectedProject) {
+      const savedMode = safeLocalStorage.getItem(getConversationModeStorageKey(selectedProject.name));
+      return savedMode === 'harness' ? 'harness' : 'chat';
+    }
+    return 'chat';
+  });
+  const [harnessAvailability, setHarnessAvailability] = useState<
+    'available' | 'unavailable_no_claude' | 'unavailable_project_unknown'
+  >('unavailable_project_unknown');
+  const [harnessAvailabilityReason, setHarnessAvailabilityReason] = useState<string | null>(null);
+  const [activeHarnessTaskId, setActiveHarnessTaskId] = useState<string | null>(null);
+  const [activeHarnessStage, setActiveHarnessStage] = useState<string | null>(null);
+  const [taskSummaryState, setTaskSummaryState] = useState<HarnessTaskSummaryState>('idle');
+  const [activePrimeState, setActivePrimeState] = useState<'unprimed' | 'primed' | 'stale'>('unprimed');
+  const [activeHarnessGate, setActiveHarnessGate] = useState<HarnessGateState | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -151,6 +201,7 @@ export function useChatComposerState({
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
+  const allowHarnessCommandSubmitRef = useRef(false);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -235,7 +286,164 @@ export function useChatComposerState({
     [onFileOpen, onShowSettings, addMessage, clearMessages, rewindMessages],
   );
 
-  const handleCustomCommand = useCallback(async (result: CommandExecutionResult) => {
+  const recordAppMetricEvent = useCallback(
+    async (payload: {
+      metricKey: string;
+      name: string;
+      category?: string;
+      reason?: string | null;
+      value?: number;
+    }) => {
+      try {
+        await authenticatedFetch('/api/harness/metrics/events/app', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            category: payload.category || 'routing',
+            metricKey: payload.metricKey,
+            name: payload.name,
+            value: payload.value ?? 1,
+            unit: 'count',
+            reason: payload.reason || null,
+            provider,
+            projectPath: selectedProject?.fullPath || selectedProject?.path || null,
+            sessionId: currentSessionId || selectedSession?.id || null,
+          }),
+        });
+      } catch (error) {
+        console.warn('Failed to record app metric event:', error);
+      }
+    },
+    [currentSessionId, provider, selectedProject, selectedSession?.id],
+  );
+
+  const showHarnessUnavailableMessage = useCallback(() => {
+    addMessage({
+      type: 'assistant',
+      content: getHarnessAvailabilityMessage(t, harnessAvailability, harnessAvailabilityReason),
+      timestamp: Date.now(),
+    });
+  }, [addMessage, harnessAvailability, harnessAvailabilityReason, t]);
+
+  const loadSlashCommandsForProject = useCallback(async () => {
+    if (!selectedProject) {
+      return [] as SlashCommand[];
+    }
+
+    const response = await authenticatedFetch('/api/commands/list', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectPath: selectedProject.fullPath || selectedProject.path,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch commands (${response.status})`);
+    }
+
+    const data = await response.json();
+    return normalizeSlashCommandsResponse(data);
+  }, [selectedProject]);
+
+  const refreshCurrentHarnessTask = useCallback(
+    async (projectOverride?: Project | null) => {
+      const project = projectOverride ?? selectedProject;
+      if (!project) {
+        setActiveHarnessTaskId(null);
+        setActiveHarnessStage(null);
+        setTaskSummaryState('idle');
+        setActivePrimeState('unprimed');
+        setActiveHarnessGate(null);
+        return null;
+      }
+
+      const projectPath = project.fullPath || project.path || '';
+      if (!projectPath) {
+        setActiveHarnessTaskId(null);
+        setActiveHarnessStage(null);
+        setTaskSummaryState('idle');
+        setActivePrimeState('unprimed');
+        setActiveHarnessGate(null);
+        return null;
+      }
+
+      const response = await authenticatedFetch(
+        `/api/harness/projects/current-task?projectPath=${encodeURIComponent(projectPath)}`,
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      const nextTask = result?.task || null;
+      setActiveHarnessTaskId(nextTask?.taskId || result?.taskId || null);
+      setActiveHarnessStage(nextTask?.currentStage || null);
+      setTaskSummaryState(nextTask?.taskSummaryState || 'idle');
+      setActivePrimeState(nextTask?.primeState || 'unprimed');
+      setActiveHarnessGate(nextTask?.activeGate || null);
+      return nextTask;
+    },
+    [selectedProject],
+  );
+
+  const prepareHarnessTask = useCallback(
+    async (command: SlashCommand, commandContent: string) => {
+      if (!selectedProject) {
+        return null;
+      }
+
+      const projectPath = selectedProject.fullPath || selectedProject.path || '';
+      const sessionId = currentSessionId || selectedSession?.id || null;
+      const taskId = activeHarnessTaskId;
+      const endpoint = taskId
+        ? `/api/harness/tasks/${encodeURIComponent(taskId)}/continue`
+        : '/api/harness/tasks/start';
+
+      const response = await authenticatedFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId,
+          projectPath,
+          message: inputValueRef.current || command.name,
+          commandName: command.name,
+          commandContent,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.error || 'Failed to prepare harness task');
+      }
+
+      const payload = await response.json();
+      const nextTaskId = payload?.task?.taskId || null;
+      const nextStage = payload?.task?.currentStage || null;
+      const nextTaskSummaryState = payload?.task?.taskSummaryState || 'idle';
+      const nextPrimeState = payload?.task?.primeState || 'unprimed';
+      const nextActiveGate = payload?.task?.activeGate || null;
+
+      if (nextTaskId) {
+        setActiveHarnessTaskId(nextTaskId);
+        setActiveHarnessStage(nextStage);
+        setTaskSummaryState(nextTaskSummaryState);
+        setActivePrimeState(nextPrimeState);
+        setActiveHarnessGate(nextActiveGate);
+      }
+
+      return payload;
+    },
+    [activeHarnessTaskId, currentSessionId, selectedProject, selectedSession?.id],
+  );
+
+  const handleCustomCommand = useCallback(async (result: CommandExecutionResult, options?: { allowHarnessSubmit?: boolean }) => {
     const { content, hasBashCommands } = result;
 
     if (hasBashCommands) {
@@ -253,6 +461,7 @@ export function useChatComposerState({
     }
 
     const commandContent = content || '';
+    allowHarnessCommandSubmitRef.current = Boolean(options?.allowHarnessSubmit);
     setInput(commandContent);
     inputValueRef.current = commandContent;
 
@@ -270,7 +479,41 @@ export function useChatComposerState({
         return;
       }
 
+      const requiresHarness = Boolean(command.metadata?.requiresHarness);
+      const effectiveConversationMode = conversationMode;
+      if (requiresHarness && harnessAvailability !== 'available') {
+        showHarnessUnavailableMessage();
+        void recordAppMetricEvent({
+          metricKey: 'M12A',
+          name: 'force_harness_blocked_no_claude',
+          reason: harnessAvailabilityReason || harnessAvailability,
+        });
+        return;
+      }
+
+      if (requiresHarness && effectiveConversationMode !== 'harness') {
+        addMessage({
+          type: 'assistant',
+          content: t('conversationMode.commandRequiresHarness'),
+          timestamp: Date.now(),
+        });
+        void recordAppMetricEvent({
+          metricKey: 'M3',
+          name: 'harness_command_guided_from_chat',
+          reason: 'requires-harness-mode',
+        });
+        return;
+      }
+
       try {
+        if (requiresHarness) {
+          void recordAppMetricEvent({
+            metricKey: 'M3',
+            name: 'message_routed_to_harness',
+            reason: 'harness-command-dispatch',
+          });
+        }
+
         const effectiveInput = rawInput ?? input;
         const commandMatch = effectiveInput.match(new RegExp(`${escapeRegExp(command.name)}\\s*(.*)`));
         const args =
@@ -315,7 +558,10 @@ export function useChatComposerState({
           setInput('');
           inputValueRef.current = '';
         } else if (result.type === 'custom') {
-          await handleCustomCommand(result);
+          if (requiresHarness) {
+            await prepareHarnessTask(command, result.content || '');
+          }
+          await handleCustomCommand(result, { allowHarnessSubmit: requiresHarness });
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -329,16 +575,23 @@ export function useChatComposerState({
     },
     [
       claudeModel,
+      conversationMode,
       codexModel,
       currentSessionId,
       cursorModel,
       geminiModel,
+      harnessAvailability,
+      harnessAvailabilityReason,
       handleBuiltInCommand,
       handleCustomCommand,
       input,
       provider,
+      prepareHarnessTask,
+      recordAppMetricEvent,
       selectedProject,
       addMessage,
+      selectedSession?.id,
+      showHarnessUnavailableMessage,
       tokenBudget,
     ],
   );
@@ -463,7 +716,20 @@ export function useChatComposerState({
     ) => {
       event.preventDefault();
       const currentInput = inputValueRef.current;
+      const effectiveConversationMode = conversationMode;
       if (!currentInput.trim() || isLoading || !selectedProject) {
+        allowHarnessCommandSubmitRef.current = false;
+        return;
+      }
+
+      if (effectiveConversationMode === 'harness' && harnessAvailability !== 'available') {
+        allowHarnessCommandSubmitRef.current = false;
+        showHarnessUnavailableMessage();
+        void recordAppMetricEvent({
+          metricKey: 'M12A',
+          name: 'force_harness_blocked_no_claude',
+          reason: harnessAvailabilityReason || harnessAvailability,
+        });
         return;
       }
 
@@ -472,9 +738,19 @@ export function useChatComposerState({
       if (trimmedInput.startsWith('/')) {
         const firstSpace = trimmedInput.indexOf(' ');
         const commandName = firstSpace > 0 ? trimmedInput.slice(0, firstSpace) : trimmedInput;
-        const matchedCommand = slashCommands.find((cmd: SlashCommand) => cmd.name === commandName);
+        let matchedCommand = slashCommands.find((cmd: SlashCommand) => cmd.name === commandName);
+
+        if (!matchedCommand) {
+          try {
+            const commands = await loadSlashCommandsForProject();
+            matchedCommand = commands.find((cmd: SlashCommand) => cmd.name === commandName);
+          } catch (error) {
+            console.warn('Failed to lazily load slash commands:', error);
+          }
+        }
+
         if (matchedCommand) {
-          executeCommand(matchedCommand, trimmedInput);
+          await executeCommand(matchedCommand, trimmedInput);
           setInput('');
           inputValueRef.current = '';
           setAttachedImages([]);
@@ -487,6 +763,21 @@ export function useChatComposerState({
           }
           return;
         }
+      }
+
+      if (effectiveConversationMode === 'harness' && !allowHarnessCommandSubmitRef.current) {
+        allowHarnessCommandSubmitRef.current = false;
+          addMessage({
+            type: 'assistant',
+            content: t('conversationMode.freeformBlocked'),
+            timestamp: Date.now(),
+          });
+        void recordAppMetricEvent({
+          metricKey: 'M3',
+          name: 'message_routed_to_chat_from_harness_freeform_blocked',
+          reason: 'phase-1-slash-command-only',
+        });
+        return;
       }
 
       let messageContent = currentInput;
@@ -523,6 +814,7 @@ export function useChatComposerState({
             content: `Failed to upload images: ${message}`,
             timestamp: new Date(),
           });
+          allowHarnessCommandSubmitRef.current = false;
           return;
         }
       }
@@ -670,31 +962,43 @@ export function useChatComposerState({
       }
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
+      allowHarnessCommandSubmitRef.current = false;
+      void recordAppMetricEvent({
+        metricKey: 'M3',
+        name: effectiveConversationMode === 'harness' ? 'message_routed_to_harness' : 'message_routed_to_chat',
+        reason: effectiveConversationMode === 'harness' ? 'harness-command-submit' : 'default-chat-path',
+      });
     },
     [
       selectedSession,
       attachedImages,
       claudeModel,
+      conversationMode,
       codexModel,
       currentSessionId,
       cursorModel,
       executeCommand,
       geminiModel,
+      harnessAvailability,
+      harnessAvailabilityReason,
       isLoading,
       onSessionActive,
       onSessionProcessing,
       pendingViewSessionRef,
       permissionMode,
       provider,
+      recordAppMetricEvent,
       resetCommandMenuState,
       scrollToBottom,
       selectedProject,
       sendMessage,
+      loadSlashCommandsForProject,
       setCanAbortSession,
       addMessage,
       setClaudeStatus,
       setIsLoading,
       setIsUserScrolledUp,
+      showHarnessUnavailableMessage,
       slashCommands,
       thinkingMode,
     ],
@@ -730,6 +1034,146 @@ export function useChatComposerState({
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
     }
   }, [input, selectedProject]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setConversationMode('chat');
+      setHarnessAvailability('unavailable_project_unknown');
+      setHarnessAvailabilityReason(null);
+      setActiveHarnessTaskId(null);
+      setActiveHarnessStage(null);
+      setTaskSummaryState('idle');
+      setActivePrimeState('unprimed');
+      setActiveHarnessGate(null);
+      return;
+    }
+
+    const savedMode = safeLocalStorage.getItem(getConversationModeStorageKey(selectedProject.name));
+    setConversationMode(savedMode === 'harness' ? 'harness' : 'chat');
+    setActiveHarnessTaskId(null);
+    setActiveHarnessStage(null);
+    setTaskSummaryState('idle');
+    setActivePrimeState('unprimed');
+    setActiveHarnessGate(null);
+
+    let isCancelled = false;
+
+    const loadHarnessCapability = async () => {
+      try {
+        const projectPath = selectedProject.fullPath || selectedProject.path || '';
+        const response = await authenticatedFetch(
+          `/api/harness/projects/capability?projectPath=${encodeURIComponent(projectPath)}`,
+        );
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = (await response.json()) as HarnessProjectCapabilityResponse;
+        if (isCancelled) {
+          return;
+        }
+
+        const nextAvailability = result.harnessAvailability || 'unavailable_project_unknown';
+        setHarnessAvailability(nextAvailability);
+        setHarnessAvailabilityReason(result.reason || null);
+
+        if (nextAvailability !== 'available') {
+          setConversationMode('chat');
+          setActiveHarnessTaskId(null);
+          setActiveHarnessStage(null);
+          setTaskSummaryState('idle');
+          setActivePrimeState('unprimed');
+          setActiveHarnessGate(null);
+          safeLocalStorage.setItem(getConversationModeStorageKey(selectedProject.name), 'chat');
+          return;
+        }
+
+        await refreshCurrentHarnessTask(selectedProject);
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+        setHarnessAvailability('unavailable_project_unknown');
+        setHarnessAvailabilityReason(error instanceof Error ? error.message : 'unknown-error');
+        setActiveHarnessTaskId(null);
+        setActiveHarnessStage(null);
+        setTaskSummaryState('idle');
+        setActivePrimeState('unprimed');
+        setActiveHarnessGate(null);
+      }
+    };
+
+    void loadHarnessCapability();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [refreshCurrentHarnessTask, selectedProject]);
+
+  useEffect(() => {
+    if (!selectedProject || harnessAvailability !== 'available') {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const refreshHarnessTaskSummary = async () => {
+      try {
+        if (isCancelled) {
+          return;
+        }
+        await refreshCurrentHarnessTask(selectedProject);
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+        console.warn('Failed to refresh harness task summary:', error);
+      }
+    };
+
+    void refreshHarnessTaskSummary();
+    const intervalId = window.setInterval(() => {
+      void refreshHarnessTaskSummary();
+    }, 2000);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [harnessAvailability, refreshCurrentHarnessTask, selectedProject]);
+
+  const handleConversationModeToggle = useCallback(() => {
+    if (!selectedProject) {
+      return;
+    }
+
+    if (harnessAvailability !== 'available') {
+      showHarnessUnavailableMessage();
+      void recordAppMetricEvent({
+        metricKey: 'M12A',
+        name: 'force_harness_blocked_no_claude',
+        reason: harnessAvailabilityReason || harnessAvailability,
+      });
+      return;
+    }
+
+    setConversationMode((previous) => {
+      const nextMode = previous === 'chat' ? 'harness' : 'chat';
+      safeLocalStorage.setItem(getConversationModeStorageKey(selectedProject.name), nextMode);
+      void recordAppMetricEvent({
+        metricKey: 'M3',
+        name: nextMode === 'harness' ? 'conversation_mode_enabled_harness' : 'conversation_mode_enabled_chat',
+        reason: 'conversation-mode-toggle',
+      });
+      return nextMode;
+    });
+  }, [
+    harnessAvailability,
+    harnessAvailabilityReason,
+    recordAppMetricEvent,
+    selectedProject,
+    showHarnessUnavailableMessage,
+  ]);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -939,6 +1383,15 @@ export function useChatComposerState({
     isTextareaExpanded,
     thinkingMode,
     setThinkingMode,
+    conversationMode,
+    harnessAvailability,
+    harnessAvailabilityReason,
+    activeHarnessTaskId,
+    activeHarnessStage,
+    taskSummaryState,
+    activePrimeState,
+    activeHarnessGate,
+    handleConversationModeToggle,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
