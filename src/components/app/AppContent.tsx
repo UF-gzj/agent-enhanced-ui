@@ -46,6 +46,7 @@ export default function AppContent() {
     latestMessage,
     isMobile,
     activeSessions,
+    processingSessions,
   });
 
   useEffect(() => {

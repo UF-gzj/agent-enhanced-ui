@@ -1,5 +1,5 @@
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useCallback, useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { ChatMessage } from '../../types/types';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
@@ -52,7 +52,7 @@ interface ChatMessagesPaneProps {
   selectedProject: Project;
 }
 
-export default function ChatMessagesPane({
+function ChatMessagesPane({
   scrollContainerRef,
   onWheel,
   onTouchMove,
@@ -97,37 +97,39 @@ export default function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
-  const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
-  const allocatedKeysRef = useRef<Set<string>>(new Set());
-  const generatedMessageKeyCounterRef = useRef(0);
+  const previousMessageKeysRef = useRef<string[]>([]);
+  const messageKeys = useMemo(() => {
+    const seenCounts = new Map<string, number>();
 
-  // Keep keys stable across prepends so existing MessageComponent instances retain local state.
-  const getMessageKey = useCallback((message: ChatMessage) => {
-    const existingKey = messageKeyMapRef.current.get(message);
-    if (existingKey) {
-      return existingKey;
+    return visibleMessages.map((message, index) => {
+      const intrinsicKey =
+        getIntrinsicMessageKey(message) ||
+        `message-fallback-${message.type}-${String(message.timestamp)}-${String(message.toolName || '')}-${String(message.content || '').slice(0, 48)}`;
+
+      const seenCount = seenCounts.get(intrinsicKey) || 0;
+      seenCounts.set(intrinsicKey, seenCount + 1);
+
+      return seenCount === 0 ? intrinsicKey : `${intrinsicKey}::${seenCount}`;
+    });
+  }, [visibleMessages]);
+
+  const newlyAddedMessageKeys = useMemo(() => {
+    if (previousMessageKeysRef.current.length === 0) {
+      return new Set<string>();
     }
 
-    const intrinsicKey = getIntrinsicMessageKey(message);
-    let candidateKey = intrinsicKey;
+    const previousKeys = new Set(previousMessageKeysRef.current);
+    return new Set(messageKeys.filter((messageKey) => !previousKeys.has(messageKey)));
+  }, [messageKeys]);
 
-    if (!candidateKey || allocatedKeysRef.current.has(candidateKey)) {
-      do {
-        generatedMessageKeyCounterRef.current += 1;
-        candidateKey = intrinsicKey
-          ? `${intrinsicKey}-${generatedMessageKeyCounterRef.current}`
-          : `message-generated-${generatedMessageKeyCounterRef.current}`;
-      } while (allocatedKeysRef.current.has(candidateKey));
-    }
-
-    allocatedKeysRef.current.add(candidateKey);
-    messageKeyMapRef.current.set(message, candidateKey);
-    return candidateKey;
-  }, []);
+  useEffect(() => {
+    previousMessageKeysRef.current = messageKeys;
+  }, [messageKeys]);
 
   return (
     <div
       ref={scrollContainerRef}
+      data-testid="chat-messages-pane"
       onWheel={onWheel}
       onTouchMove={onTouchMove}
       className="relative flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-0 py-3 sm:space-y-4 sm:p-4"
@@ -241,9 +243,10 @@ export default function ChatMessagesPane({
             const prevMessage = index > 0 ? visibleMessages[index - 1] : null;
             return (
               <MessageComponent
-                key={getMessageKey(message)}
+                key={messageKeys[index]}
                 message={message}
                 prevMessage={prevMessage}
+                animateIn={newlyAddedMessageKeys.has(messageKeys[index])}
                 createDiff={createDiff}
                 onFileOpen={onFileOpen}
                 onShowSettings={onShowSettings}
@@ -261,4 +264,6 @@ export default function ChatMessagesPane({
     </div>
   );
 }
+
+export default React.memo(ChatMessagesPane);
 

@@ -2,7 +2,7 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 
 const NO_CLAUDE_PROJECT_PATH = path.resolve(
-  process.env.CLOUDCLI_E2E_NO_CLAUDE_PROJECT_PATH || process.cwd(),
+  process.env.CLOUDCLI_E2E_NO_CLAUDE_PROJECT_PATH || 'tests/e2e/fixtures/no-claude-workspace',
 );
 const HARNESS_PROJECT_PATH = path.resolve(
   process.env.CLOUDCLI_E2E_HARNESS_PROJECT_PATH || 'tests/e2e/fixtures/harness-workspace',
@@ -10,6 +10,14 @@ const HARNESS_PROJECT_PATH = path.resolve(
 const AUTH_CREDENTIALS = {
   username: process.env.CLOUDCLI_E2E_USERNAME || 'smoketest',
   password: process.env.CLOUDCLI_E2E_PASSWORD || 'smoke12345',
+};
+const TEXT_MATCHERS = {
+  workspace: /^(Workspace 状态条|Workspace Status)$/i,
+  commandRegistry: /^Command Registry$/i,
+  artifactWorkbench: /^(Artifact Workbench|Artifacts)$/i,
+  timeline: /^Timeline$/i,
+  taskId: /Task ID/i,
+  canonical: /canonical/i,
 };
 
 function getProjectButtonLocator(page, projectName) {
@@ -120,13 +128,12 @@ test.describe.serial('phase-2 harness browser automation', () => {
     await selectProject(page, harnessProject.name);
     await page.getByTestId('main-tab-harness').click();
 
-    await expect(page.getByText('Workspace 状态条')).toBeVisible();
-    await expect(page.getByText('Command Registry')).toBeVisible();
-    await expect(page.getByText('Artifact Workbench')).toBeVisible();
-    await expect(page.getByText('Timeline', { exact: true })).toBeVisible();
-    await expect(page.getByText('Workspace 状态条')).toBeVisible();
-    await expect(page.getByText('Task ID', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('canonical').first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.workspace).first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.commandRegistry).first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.artifactWorkbench).first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.timeline).first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.taskId).first()).toBeVisible();
+    await expect(page.getByText(TEXT_MATCHERS.canonical).first()).toBeVisible();
   });
 
   test('M14: 合法与非法阶段跳转被正确执行或拦截', async ({ request }) => {
@@ -311,5 +318,138 @@ test.describe.serial('phase-2 harness browser automation', () => {
     expect(revalidateResponse.ok()).toBeTruthy();
     const revalidatePayload = await revalidateResponse.json();
     expect(['revu', 'vald', 'iter'].includes(revalidatePayload.task.currentStage)).toBeTruthy();
+  });
+
+  test('reviewer / validator 通过独立 Claude 子线程执行，并持续使用各自模型', async ({ request }) => {
+    test.setTimeout(360_000);
+
+    const token = await login(request);
+    await completeOnboarding(request, token);
+    await ensureProject(request, token, HARNESS_PROJECT_PATH);
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const providerConfigResponse = await request.put('/api/harness/providers/claude/subagent-config', {
+      headers,
+      data: {
+        reviewerMode: 'override',
+        reviewerModel: 'sonnet',
+        validatorMode: 'override',
+        validatorModel: 'haiku',
+      },
+    });
+    expect(providerConfigResponse.ok()).toBeTruthy();
+
+    const createStageChain = async (sessionId, laneStage, commandName) => {
+      const startResponse = await request.post('/api/harness/tasks/start', {
+        headers,
+        data: {
+          sessionId,
+          projectPath: HARNESS_PROJECT_PATH,
+          message: `phase2 lane ${laneStage} prim`,
+          commandName: '/prim',
+          commandContent: '/prim',
+          mainClaudeModel: 'opus',
+        },
+      });
+      expect(startResponse.ok()).toBeTruthy();
+      const startPayload = await startResponse.json();
+      const taskId = startPayload.task.taskId;
+
+      const planResponse = await request.post(`/api/harness/tasks/${taskId}/stages/pln/execute`, {
+        headers,
+        data: {
+          projectPath: HARNESS_PROJECT_PATH,
+          message: `phase2 lane ${laneStage} plan`,
+          commandName: '/pln',
+          commandContent: '/pln',
+          mainClaudeModel: 'opus',
+        },
+      });
+      expect(planResponse.ok()).toBeTruthy();
+
+      const execResponse = await request.post(`/api/harness/tasks/${taskId}/stages/exec/execute`, {
+        headers,
+        data: {
+          projectPath: HARNESS_PROJECT_PATH,
+          message: `phase2 lane ${laneStage} exec`,
+          commandName: '/exec',
+          commandContent: '/exec',
+          mainClaudeModel: 'opus',
+        },
+      });
+      expect(execResponse.ok()).toBeTruthy();
+
+      const lanePrepareResponse = await request.post(`/api/harness/tasks/${taskId}/stages/${laneStage}/execute`, {
+        headers,
+        data: {
+          projectPath: HARNESS_PROJECT_PATH,
+          message: `phase2 lane ${laneStage} prepare`,
+          commandName,
+          commandContent: commandName,
+          mainClaudeModel: 'opus',
+        },
+      });
+      expect(lanePrepareResponse.ok()).toBeTruthy();
+
+      return taskId;
+    };
+
+    const reviewerMainSessionId = 'main-review-session-fixture';
+    const reviewTaskId = await createStageChain(reviewerMainSessionId, 'revu', '/validation:review');
+    const reviewLaneResponse = await request.post(`/api/harness/tasks/${reviewTaskId}/lanes/review/run`, {
+      headers,
+      data: {
+        projectPath: HARNESS_PROJECT_PATH,
+      },
+    });
+    expect(reviewLaneResponse.ok()).toBeTruthy();
+    const reviewLanePayload = await reviewLaneResponse.json();
+    expect(reviewLanePayload.result.sessionId).toBeTruthy();
+    expect(reviewLanePayload.result.sessionId).not.toBe(reviewerMainSessionId);
+    expect(reviewLanePayload.result.modelResolution.resolvedModel).toBe('sonnet');
+    expect(reviewLanePayload.task.laneSessions.review.sessionId).toBe(reviewLanePayload.result.sessionId);
+    expect(reviewLanePayload.task.laneSessions.review.model).toBe('sonnet');
+
+    const reviewRunsResponse = await request.get(
+      `/api/harness/tasks/${reviewTaskId}/runs?projectPath=${encodeURIComponent(HARNESS_PROJECT_PATH)}`,
+      { headers },
+    );
+    expect(reviewRunsResponse.ok()).toBeTruthy();
+    const reviewRunsPayload = await reviewRunsResponse.json();
+    const reviewerRun = [...reviewRunsPayload.runs]
+      .reverse()
+      .find((run) => run.role === 'reviewer');
+    expect(reviewerRun).toBeTruthy();
+    expect(reviewerRun.sessionId).toBe(reviewLanePayload.result.sessionId);
+    expect(reviewerRun.modelResolution.resolvedModel).toBe('sonnet');
+
+    const validatorMainSessionId = 'main-validation-session-fixture';
+    const validationTaskId = await createStageChain(validatorMainSessionId, 'vald', '/validation:validate');
+    const validationLaneResponse = await request.post(`/api/harness/tasks/${validationTaskId}/lanes/validation/run`, {
+      headers,
+      data: {
+        projectPath: HARNESS_PROJECT_PATH,
+      },
+    });
+    expect(validationLaneResponse.ok()).toBeTruthy();
+    const validationLanePayload = await validationLaneResponse.json();
+    expect(validationLanePayload.result.sessionId).toBeTruthy();
+    expect(validationLanePayload.result.sessionId).not.toBe(validatorMainSessionId);
+    expect(validationLanePayload.result.modelResolution.resolvedModel).toBe('haiku');
+    expect(validationLanePayload.task.laneSessions.validation.sessionId).toBe(validationLanePayload.result.sessionId);
+    expect(validationLanePayload.task.laneSessions.validation.model).toBe('haiku');
+
+    const validationRunsResponse = await request.get(
+      `/api/harness/tasks/${validationTaskId}/runs?projectPath=${encodeURIComponent(HARNESS_PROJECT_PATH)}`,
+      { headers },
+    );
+    expect(validationRunsResponse.ok()).toBeTruthy();
+    const validationRunsPayload = await validationRunsResponse.json();
+    const validatorRun = [...validationRunsPayload.runs]
+      .reverse()
+      .find((run) => run.role === 'validator');
+    expect(validatorRun).toBeTruthy();
+    expect(validatorRun.sessionId).toBe(validationLanePayload.result.sessionId);
+    expect(validatorRun.modelResolution.resolvedModel).toBe('haiku');
   });
 });

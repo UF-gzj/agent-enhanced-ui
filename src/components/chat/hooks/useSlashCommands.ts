@@ -17,7 +17,7 @@ export interface SlashCommand {
   [key: string]: unknown;
 }
 
-const HARNESS_COMMAND_PREFIXES = ['/core/', '/validation/', '/bugfix/'];
+const HARNESS_COMMAND_PREFIXES = ['/core:', '/validation:', '/bugfix:', '/core/', '/validation/', '/bugfix/'];
 const HARNESS_COMMAND_NAMES = new Set([
   '/prim',
   '/pinit',
@@ -34,9 +34,22 @@ const HARNESS_COMMAND_NAMES = new Set([
   '/srev',
   '/cmit',
   '/commit',
+  '/core:prime',
+  '/core:init-project',
+  '/core:refresh-project-context',
+  '/core:backend-review-plan',
+  '/core:plan',
+  '/core:execute',
+  '/core:iterate',
+  '/bugfix:rca',
+  '/bugfix:implement-fix',
+  '/validation:validate',
+  '/validation:review',
+  '/validation:execution-report',
+  '/validation:system-review',
 ]);
 
-const normalizeCommandIdentifier = (value: string) => {
+const normalizeCommandLookupKey = (value: string) => {
   if (!value) {
     return value;
   }
@@ -50,19 +63,27 @@ export const isHarnessCommand = (command: SlashCommand): boolean => {
     return false;
   }
 
-  if (HARNESS_COMMAND_NAMES.has(command.name)) {
+  const normalizedName = normalizeCommandLookupKey(command.name).toLowerCase();
+
+  if (
+    Array.from(HARNESS_COMMAND_NAMES).some(
+      (commandName) => normalizeCommandLookupKey(commandName).toLowerCase() === normalizedName,
+    )
+  ) {
     return true;
   }
 
-  return HARNESS_COMMAND_PREFIXES.some((prefix) => command.name.startsWith(prefix));
+  return HARNESS_COMMAND_PREFIXES.some((prefix) => normalizedName.startsWith(normalizeCommandLookupKey(prefix).toLowerCase()));
 };
 
 export const normalizeSlashCommandsResponse = (data: { builtIn?: SlashCommand[]; custom?: SlashCommand[] }) => {
   const normalizedCustomCommands = ((data.custom || []) as SlashCommand[]).map((command) => {
     const canonicalName =
       typeof command.metadata?.alias_for === 'string'
-        ? normalizeCommandIdentifier(command.metadata.alias_for)
-        : normalizeCommandIdentifier(command.name);
+        ? command.metadata.alias_for
+        : typeof command.metadata?.canonicalName === 'string'
+          ? command.metadata.canonicalName
+          : command.name;
     return {
       ...command,
       type: 'custom',
@@ -77,13 +98,13 @@ export const normalizeSlashCommandsResponse = (data: { builtIn?: SlashCommand[];
   const dedupedCustomCommands = normalizedCustomCommands.reduce<SlashCommand[]>((bucket, command) => {
     const canonicalName =
       typeof command.metadata?.canonicalName === 'string'
-        ? normalizeCommandIdentifier(command.metadata.canonicalName)
-        : normalizeCommandIdentifier(command.name);
+        ? normalizeCommandLookupKey(command.metadata.canonicalName)
+        : normalizeCommandLookupKey(command.name);
     const existingIndex = bucket.findIndex((existingCommand) => {
       const existingCanonicalName =
         typeof existingCommand.metadata?.canonicalName === 'string'
-          ? normalizeCommandIdentifier(existingCommand.metadata.canonicalName)
-          : normalizeCommandIdentifier(existingCommand.name);
+          ? normalizeCommandLookupKey(existingCommand.metadata.canonicalName)
+          : normalizeCommandLookupKey(existingCommand.name);
       return existingCanonicalName === canonicalName;
     });
 
@@ -123,7 +144,7 @@ interface UseSlashCommandsOptions {
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
   textareaRef: RefObject<HTMLTextAreaElement>;
-  onExecuteCommand: (command: SlashCommand, rawInput?: string) => void | Promise<void>;
+  commandVisibilityFilter?: (command: SlashCommand) => boolean;
 }
 
 const getCommandHistoryKey = (projectName: string) => `command_history_${projectName}`;
@@ -146,15 +167,12 @@ const saveCommandHistory = (projectName: string, history: Record<string, number>
   safeLocalStorage.setItem(getCommandHistoryKey(projectName), JSON.stringify(history));
 };
 
-const isPromiseLike = (value: unknown): value is Promise<unknown> =>
-  Boolean(value) && typeof (value as Promise<unknown>).then === 'function';
-
 export function useSlashCommands({
   selectedProject,
   input,
   setInput,
   textareaRef,
-  onExecuteCommand,
+  commandVisibilityFilter,
 }: UseSlashCommandsOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [filteredCommands, setFilteredCommands] = useState<SlashCommand[]>([]);
@@ -195,7 +213,7 @@ export function useSlashCommands({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            projectPath: selectedProject.path,
+            projectPath: selectedProject.fullPath || selectedProject.path,
           }),
         });
 
@@ -247,7 +265,9 @@ export function useSlashCommands({
 
   useEffect(() => {
     if (!commandQuery) {
-      setFilteredCommands(slashCommands);
+      setFilteredCommands(
+        commandVisibilityFilter ? slashCommands.filter((command) => commandVisibilityFilter(command)) : slashCommands,
+      );
       return;
     }
 
@@ -257,8 +277,13 @@ export function useSlashCommands({
     }
 
     const results = fuse.search(commandQuery);
-    setFilteredCommands(results.map((result) => result.item));
-  }, [commandQuery, slashCommands, fuse]);
+    const nextCommands = results.map((result) => result.item);
+    setFilteredCommands(
+      commandVisibilityFilter
+        ? nextCommands.filter((command) => commandVisibilityFilter(command))
+        : nextCommands,
+    );
+  }, [commandQuery, slashCommands, fuse, commandVisibilityFilter]);
 
   const frequentCommands = useMemo(() => {
     if (!selectedProject || slashCommands.length === 0) {
@@ -272,10 +297,11 @@ export function useSlashCommands({
         ...command,
         usageCount: parsedHistory[command.name] || 0,
       }))
+      .filter((command) => (commandVisibilityFilter ? commandVisibilityFilter(command) : true))
       .filter((command) => command.usageCount > 0)
       .sort((commandA, commandB) => commandB.usageCount - commandA.usageCount)
       .slice(0, 5);
-  }, [selectedProject, slashCommands]);
+  }, [selectedProject, slashCommands, commandVisibilityFilter]);
 
   const trackCommandUsage = useCallback(
     (command: SlashCommand) => {
@@ -292,23 +318,42 @@ export function useSlashCommands({
 
   const selectCommandFromKeyboard = useCallback(
     (command: SlashCommand) => {
-      const textBeforeSlash = input.slice(0, slashPosition);
-      const textAfterSlash = input.slice(slashPosition);
-      const spaceIndex = textAfterSlash.indexOf(' ');
-      const textAfterQuery = spaceIndex !== -1 ? textAfterSlash.slice(spaceIndex) : '';
-      const newInput = `${textBeforeSlash}${command.name} ${textAfterQuery}`;
+      const cursorFromTextarea = textareaRef.current?.selectionStart ?? input.length;
+
+      let newInput = '';
+      let cursorPosition = 0;
+
+      if (slashPosition >= 0) {
+        const textBeforeSlash = input.slice(0, slashPosition);
+        const textAfterSlash = input.slice(slashPosition);
+        const spaceIndex = textAfterSlash.indexOf(' ');
+        const trailingText = spaceIndex !== -1 ? textAfterSlash.slice(spaceIndex + 1).trimStart() : '';
+
+        newInput = trailingText
+          ? `${textBeforeSlash}${command.name} ${trailingText}`
+          : `${textBeforeSlash}${command.name} `;
+        cursorPosition = trailingText
+          ? textBeforeSlash.length + command.name.length + 1 + trailingText.length
+          : textBeforeSlash.length + command.name.length + 1;
+      } else {
+        const textBeforeCursor = input.slice(0, cursorFromTextarea);
+        const textAfterCursor = input.slice(cursorFromTextarea);
+        const separator = textBeforeCursor && !/\s$/.test(textBeforeCursor) ? ' ' : '';
+        const inserted = `${separator}${command.name} `;
+        newInput = `${textBeforeCursor}${inserted}${textAfterCursor}`;
+        cursorPosition = textBeforeCursor.length + inserted.length;
+      }
 
       setInput(newInput);
       resetCommandMenuState();
-
-      const executionResult = onExecuteCommand(command);
-      if (isPromiseLike(executionResult)) {
-        executionResult.catch(() => {
-          // Keep behavior silent; execution errors are handled by caller.
-        });
-      }
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(cursorPosition, cursorPosition);
+        }
+      });
     },
-    [input, slashPosition, setInput, resetCommandMenuState, onExecuteCommand],
+    [input, slashPosition, setInput, resetCommandMenuState, textareaRef],
   );
 
   const handleCommandSelect = useCallback(
@@ -323,20 +368,9 @@ export function useSlashCommands({
       }
 
       trackCommandUsage(command);
-      const executionResult = onExecuteCommand(command);
-
-      if (isPromiseLike(executionResult)) {
-        executionResult.then(() => {
-          resetCommandMenuState();
-        });
-        executionResult.catch(() => {
-          // Keep behavior silent; execution errors are handled by caller.
-        });
-      } else {
-        resetCommandMenuState();
-      }
+      selectCommandFromKeyboard(command);
     },
-    [selectedProject, trackCommandUsage, onExecuteCommand, resetCommandMenuState],
+    [selectedProject, trackCommandUsage, selectCommandFromKeyboard],
   );
 
   const handleToggleCommandMenu = useCallback(() => {
@@ -346,11 +380,13 @@ export function useSlashCommands({
     setSelectedCommandIndex(-1);
 
     if (isOpening) {
-      setFilteredCommands(slashCommands);
+      setFilteredCommands(
+        commandVisibilityFilter ? slashCommands.filter((command) => commandVisibilityFilter(command)) : slashCommands,
+      );
     }
 
     textareaRef.current?.focus();
-  }, [showCommandMenu, slashCommands, textareaRef]);
+  }, [showCommandMenu, slashCommands, textareaRef, commandVisibilityFilter]);
 
   const handleCommandInputChange = useCallback(
     (newValue: string, cursorPos: number) => {

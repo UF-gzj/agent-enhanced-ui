@@ -101,6 +101,11 @@ export async function writeCurrentTaskPointer(projectPath, task) {
   return pointer;
 }
 
+export async function clearCurrentTaskPointer(projectPath) {
+  const { currentTaskFile } = await ensureProjectRuntime(projectPath);
+  await fs.rm(currentTaskFile, { force: true });
+}
+
 export async function readCurrentTaskPointer(projectPath) {
   try {
     const { currentTaskFile } = buildProjectRuntimePaths(projectPath);
@@ -197,6 +202,7 @@ export function createInitialTask({
   title,
   stage,
   subagentModelConfig,
+  mainClaudeModel,
 }) {
   const createdAt = nowIso();
   return {
@@ -213,7 +219,9 @@ export function createInitialTask({
     sourceHashes: {
       projectPath: sha256(projectPath),
     },
+    mainClaudeModel: mainClaudeModel || null,
     subagentModelConfig: subagentModelConfig || null,
+    laneSessions: {},
     activeGate: deriveActiveGate(null, stage),
     createdAt,
     updatedAt: createdAt,

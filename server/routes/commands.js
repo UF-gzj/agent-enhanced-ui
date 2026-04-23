@@ -5,6 +5,12 @@ import os from 'os';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS } from '../../shared/modelConstants.js';
 import { parseFrontmatter } from '../utils/frontmatter.js';
 import { findAppRoot, getModuleDir } from '../utils/runtime-paths.js';
+import {
+  formatClaudeCommandName,
+  getPreferredCommandNameForStage,
+  inferStageFromCommandName,
+  normalizeCommandLookupKey,
+} from '../harness/stage-state-machine.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // This route reads the top-level package.json for the status command, so it needs the real
@@ -13,28 +19,27 @@ const APP_ROOT = findAppRoot(__dirname);
 
 const router = express.Router();
 
-function normalizeCommandIdentifier(value) {
-  if (!value) {
-    return value;
-  }
-
-  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
-  return withLeadingSlash.replace(/:/g, '/').replace(/\/+/g, '/');
-}
-
 function dedupeCustomCommands(commands) {
   return commands.reduce((bucket, command) => {
-    const canonicalName = normalizeCommandIdentifier(
-      typeof command?.metadata?.alias_for === 'string' ? command.metadata.alias_for : command.name,
-    );
+    const stage = inferStageFromCommandName(command?.name || command?.metadata?.alias_for || '');
+    const canonicalName =
+      getPreferredCommandNameForStage(stage) ||
+      formatClaudeCommandName(
+        typeof command?.metadata?.alias_for === 'string' ? command.metadata.alias_for : command.name,
+      );
 
     const existingIndex = bucket.findIndex((existingCommand) => {
-      const existingCanonicalName = normalizeCommandIdentifier(
-        typeof existingCommand?.metadata?.alias_for === 'string'
-          ? existingCommand.metadata.alias_for
-          : existingCommand.name,
+      const existingStage = inferStageFromCommandName(
+        existingCommand?.name || existingCommand?.metadata?.alias_for || '',
       );
-      return existingCanonicalName === canonicalName;
+      const existingCanonicalName =
+        getPreferredCommandNameForStage(existingStage) ||
+        formatClaudeCommandName(
+          typeof existingCommand?.metadata?.alias_for === 'string'
+            ? existingCommand.metadata.alias_for
+            : existingCommand.name,
+        );
+      return normalizeCommandLookupKey(existingCanonicalName) === normalizeCommandLookupKey(canonicalName);
     });
 
     if (existingIndex === -1) {
@@ -49,8 +54,10 @@ function dedupeCustomCommands(commands) {
     }
 
     const existingCommand = bucket[existingIndex];
-    const existingIsAlias = typeof existingCommand?.metadata?.alias_for === 'string';
-    const nextIsAlias = typeof command?.metadata?.alias_for === 'string';
+    const existingIsAlias =
+      normalizeCommandLookupKey(existingCommand.name) !== normalizeCommandLookupKey(existingCommand.metadata?.canonicalName || '');
+    const nextIsAlias =
+      normalizeCommandLookupKey(command.name) !== normalizeCommandLookupKey(canonicalName);
 
     if (existingIsAlias && !nextIsAlias) {
       bucket[existingIndex] = {
@@ -98,7 +105,9 @@ async function scanCommandsDirectory(dir, baseDir, namespace) {
           // Calculate relative path from baseDir for command name
           const relativePath = path.relative(baseDir, fullPath);
           // Remove .md extension and convert to command name
-          const commandName = '/' + relativePath.replace(/\.md$/, '').replace(/\\/g, '/');
+          const commandName = formatClaudeCommandName(
+            '/' + relativePath.replace(/\.md$/, '').replace(/\\/g, '/'),
+          );
 
           // Extract description from frontmatter or first line of content
           let description = frontmatter.description || '';

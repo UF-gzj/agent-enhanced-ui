@@ -1,33 +1,67 @@
-const COMMAND_STAGE_MAP = new Map([
-  ['/prim', 'prim'],
-  ['/core/prime', 'prim'],
-  ['/pinit', 'pinit'],
-  ['/core/init-project', 'pinit'],
-  ['/refr', 'refr'],
-  ['/core/refresh-project-context', 'refr'],
-  ['/bref', 'bref'],
-  ['/core/backend-review-plan', 'bref'],
-  ['/pln', 'pln'],
-  ['/core/plan', 'pln'],
-  ['/exec', 'exec'],
-  ['/core/execute', 'exec'],
-  ['/iter', 'iter'],
-  ['/core/iterate', 'iter'],
-  ['/rca', 'rca'],
-  ['/bugfix/rca', 'rca'],
-  ['/fix', 'fix'],
-  ['/bugfix/implement-fix', 'fix'],
-  ['/revu', 'revu'],
-  ['/validation/review', 'revu'],
-  ['/vald', 'vald'],
-  ['/validation/validate', 'vald'],
-  ['/xrep', 'xrep'],
-  ['/validation/execution-report', 'xrep'],
-  ['/srev', 'srev'],
-  ['/validation/system-review', 'srev'],
-  ['/cmit', 'cmit'],
-  ['/commit', 'cmit'],
+const PRIMARY_STAGE_COMMAND_MAP = new Map([
+  ['prim', '/core:prime'],
+  ['pinit', '/core:init-project'],
+  ['refr', '/core:refresh-project-context'],
+  ['bref', '/core:backend-review-plan'],
+  ['pln', '/core:plan'],
+  ['exec', '/core:execute'],
+  ['iter', '/core:iterate'],
+  ['rca', '/bugfix:rca'],
+  ['fix', '/bugfix:implement-fix'],
+  ['revu', '/validation:review'],
+  ['vald', '/validation:validate'],
+  ['xrep', '/validation:execution-report'],
+  ['srev', '/validation:system-review'],
+  ['cmit', '/commit'],
 ]);
+
+const COMMAND_STAGE_ENTRIES = [
+  ['/core:prime', 'prim'],
+  ['/core/prime', 'prim'],
+  ['/prim', 'prim'],
+  ['/core:init-project', 'pinit'],
+  ['/core/init-project', 'pinit'],
+  ['/pinit', 'pinit'],
+  ['/core:refresh-project-context', 'refr'],
+  ['/core/refresh-project-context', 'refr'],
+  ['/refr', 'refr'],
+  ['/core:backend-review-plan', 'bref'],
+  ['/core/backend-review-plan', 'bref'],
+  ['/bref', 'bref'],
+  ['/core:plan', 'pln'],
+  ['/core/plan', 'pln'],
+  ['/pln', 'pln'],
+  ['/core:execute', 'exec'],
+  ['/core/execute', 'exec'],
+  ['/exec', 'exec'],
+  ['/core:iterate', 'iter'],
+  ['/core/iterate', 'iter'],
+  ['/iter', 'iter'],
+  ['/bugfix:rca', 'rca'],
+  ['/bugfix/rca', 'rca'],
+  ['/rca', 'rca'],
+  ['/bugfix:implement-fix', 'fix'],
+  ['/bugfix/implement-fix', 'fix'],
+  ['/fix', 'fix'],
+  ['/validation:review', 'revu'],
+  ['/validation/review', 'revu'],
+  ['/revu', 'revu'],
+  ['/validation:validate', 'vald'],
+  ['/validation/validate', 'vald'],
+  ['/vald', 'vald'],
+  ['/validation:execution-report', 'xrep'],
+  ['/validation/execution-report', 'xrep'],
+  ['/xrep', 'xrep'],
+  ['/validation:system-review', 'srev'],
+  ['/validation/system-review', 'srev'],
+  ['/srev', 'srev'],
+  ['/commit', 'cmit'],
+  ['/cmit', 'cmit'],
+];
+
+const COMMAND_STAGE_MAP = new Map(
+  COMMAND_STAGE_ENTRIES.map(([commandName, stage]) => [normalizeCommandLookupKey(commandName), stage]),
+);
 
 export const STAGE_DEFINITIONS = {
   prim: {
@@ -167,7 +201,7 @@ export const STAGE_DEFINITIONS = {
   },
 };
 
-export function normalizeCommandName(commandName = '') {
+export function normalizeCommandLookupKey(commandName = '') {
   const trimmed = String(commandName || '').trim();
   if (!trimmed) {
     return '';
@@ -177,10 +211,39 @@ export function normalizeCommandName(commandName = '') {
   return prefixed.replace(/:/g, '/').replace(/\/+/g, '/').toLowerCase();
 }
 
+export function formatClaudeCommandName(commandName = '') {
+  const trimmed = String(commandName || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const normalized = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  const slashNormalized = normalized.replace(/:/g, '/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!slashNormalized) {
+    return '';
+  }
+
+  const segments = slashNormalized.split('/').filter(Boolean).map((segment) => segment.toLowerCase());
+  if (segments.length <= 1) {
+    return `/${segments[0]}`;
+  }
+
+  const [namespace, ...rest] = segments;
+  return `/${namespace}:${rest.join('/')}`;
+}
+
+export function normalizeCommandName(commandName = '') {
+  return normalizeCommandLookupKey(commandName);
+}
+
+export function getPreferredCommandNameForStage(stage) {
+  return PRIMARY_STAGE_COMMAND_MAP.get(stage) || null;
+}
+
 export function inferStageFromCommandName(commandName = '') {
-  const normalized = normalizeCommandName(commandName);
+  const normalized = normalizeCommandLookupKey(commandName);
   if (!normalized) {
-    return 'prim';
+    return null;
   }
 
   if (COMMAND_STAGE_MAP.has(normalized)) {
@@ -188,7 +251,7 @@ export function inferStageFromCommandName(commandName = '') {
   }
 
   const leaf = normalized.split('/').pop() || '';
-  return COMMAND_STAGE_MAP.get(`/${leaf}`) || 'prim';
+  return COMMAND_STAGE_MAP.get(`/${leaf}`) || null;
 }
 
 export function getStageDefinition(stage) {

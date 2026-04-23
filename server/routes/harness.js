@@ -16,6 +16,7 @@ import { appendAppMetricEvent, listAppMetricEvents } from '../harness/metrics-se
 import {
   applyGateDecision,
   appendTaskEvent,
+  clearCurrentTaskPointer,
   createInitialTask,
   createTaskId,
   enrichTaskState,
@@ -45,6 +46,7 @@ import { getEvalSummary, listEvalDatasets, listEvalResults, runEvalBenchmark, sa
 import { createTaskCheckpoint, listTaskCheckpoints, resumeTaskFromCheckpoint } from '../harness/checkpoint-service.js';
 import { listKnowledgeFeedback, writeKnowledgeFeedback } from '../harness/knowledge-feedback-service.js';
 import { initializeHarnessBootstrap } from '../harness/bootstrap-service.js';
+import { runHarnessSubagentLane } from '../harness/subagent-runner-service.js';
 const router = express.Router();
 
 async function ensureHarnessAvailable(projectPath, res) {
@@ -66,6 +68,7 @@ async function executeTaskStage({
   sendMode,
   commandName,
   commandContent,
+  mainClaudeModel,
 }) {
   const stage = inferStageFromCommandName(commandName);
   const subagentSettings = getSubagentModelSettings();
@@ -95,6 +98,7 @@ async function executeTaskStage({
       title: message,
       stage,
       subagentModelConfig: selectedProviderConfig,
+      mainClaudeModel,
     });
 
     const artifactResult = await refreshTaskArtifactBindings(
@@ -184,6 +188,8 @@ async function executeTaskStage({
   );
   const taskWithArtifacts = {
     ...task,
+    mainClaudeModel: mainClaudeModel || task.mainClaudeModel || null,
+    subagentModelConfig: selectedProviderConfig,
     artifactBindings: artifactResult.artifactBindings,
   };
 
@@ -242,6 +248,33 @@ async function executeTaskStage({
   };
 }
 
+const LANE_STAGE_MAP = {
+  review: 'revu',
+  validation: 'vald',
+};
+
+function buildLaneTaskUpdate(task, laneResult) {
+  const lane = laneResult.lane;
+  const nextTask = applyGateDecision(task, {
+    lane,
+    status: laneResult.status,
+    blockers: laneResult.blockers,
+    humanDecision: null,
+  });
+
+  return enrichTaskState({
+    ...nextTask,
+    laneSessions: {
+      ...(task.laneSessions || {}),
+      [lane]: {
+        sessionId: laneResult.sessionId || null,
+        model: laneResult.modelResolution?.resolvedModel || null,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  });
+}
+
 router.get('/projects/capability', async (req, res) => {
   try {
     const projectPath = typeof req.query.projectPath === 'string' ? req.query.projectPath : '';
@@ -284,6 +317,53 @@ router.get('/projects/current-task', async (req, res) => {
   } catch (error) {
     console.error('[HARNESS] Failed to read current task:', error);
     res.status(500).json({ error: 'Failed to read current harness task' });
+  }
+});
+
+router.post('/projects/reset-current-task', async (req, res) => {
+  try {
+    const projectPath = typeof req.body?.projectPath === 'string' ? req.body.projectPath : '';
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+
+    const availability = await ensureHarnessAvailable(projectPath, res);
+    if (!availability) {
+      return;
+    }
+
+    const currentTask = await readCurrentTask(projectPath);
+    if (!currentTask) {
+      await clearCurrentTaskPointer(projectPath);
+      return res.json({
+        success: true,
+        taskId: null,
+        task: null,
+      });
+    }
+
+    const resetTask = enrichTaskState({
+      ...currentTask,
+      status: 'cancelled',
+      updatedAt: new Date().toISOString(),
+    });
+
+    await writeTask(projectPath, resetTask);
+    await appendTaskEvent(projectPath, resetTask.taskId, {
+      type: 'task_reset',
+      stage: resetTask.currentStage || null,
+      summary: 'current task reset from harness workbench',
+    });
+    await clearCurrentTaskPointer(projectPath);
+
+    return res.json({
+      success: true,
+      taskId: resetTask.taskId,
+      task: null,
+    });
+  } catch (error) {
+    console.error('[HARNESS] Failed to reset current task:', error);
+    res.status(500).json({ error: 'Failed to reset current harness task' });
   }
 });
 
@@ -595,6 +675,7 @@ router.post('/tasks/start', async (req, res) => {
       sendMode = 'force_harness',
       commandName = '',
       commandContent = '',
+      mainClaudeModel = null,
     } = req.body || {};
 
     if (!projectPath) {
@@ -612,6 +693,7 @@ router.post('/tasks/start', async (req, res) => {
       sendMode,
       commandName,
       commandContent,
+      mainClaudeModel,
     });
     if (!result.ok) {
       return res.status(result.statusCode || 400).json(result.body);
@@ -632,6 +714,7 @@ router.post('/tasks/:taskId/continue', async (req, res) => {
       sendMode = 'force_harness',
       commandName = '',
       commandContent = '',
+      mainClaudeModel = null,
     } = req.body || {};
 
     if (!projectPath) {
@@ -650,6 +733,7 @@ router.post('/tasks/:taskId/continue', async (req, res) => {
       sendMode,
       commandName,
       commandContent,
+      mainClaudeModel,
     });
     if (!result.ok) {
       return res.status(result.statusCode || 400).json(result.body);
@@ -670,6 +754,7 @@ router.post('/tasks/:taskId/stages/:stage/execute', async (req, res) => {
       commandName = `/${stage}`,
       commandContent = '',
       sendMode = 'force_harness',
+      mainClaudeModel = null,
     } = req.body || {};
 
     if (!projectPath) {
@@ -688,6 +773,7 @@ router.post('/tasks/:taskId/stages/:stage/execute', async (req, res) => {
       sendMode,
       commandName,
       commandContent,
+      mainClaudeModel,
     });
     if (!result.ok) {
       return res.status(result.statusCode || 400).json(result.body);
@@ -699,6 +785,103 @@ router.post('/tasks/:taskId/stages/:stage/execute', async (req, res) => {
     }
     console.error('[HARNESS] Failed to execute stage:', error);
     res.status(500).json({ error: 'Failed to execute harness stage' });
+  }
+});
+
+router.post('/tasks/:taskId/lanes/:lane/run', async (req, res) => {
+  try {
+    const { taskId, lane } = req.params;
+    const { projectPath } = req.body || {};
+
+    if (!projectPath) {
+      return res.status(400).json({ error: 'projectPath is required' });
+    }
+
+    if (!['review', 'validation'].includes(lane)) {
+      return res.status(400).json({ error: 'lane must be review or validation' });
+    }
+
+    const availability = await ensureHarnessAvailable(projectPath, res);
+    if (!availability) {
+      return;
+    }
+
+    const expectedStage = LANE_STAGE_MAP[lane];
+    const subagentSettings = getSubagentModelSettings();
+    const selectedProviderConfig =
+      subagentSettings.configs?.[subagentSettings.selectedProvider] || null;
+
+    let task = await readTask(projectPath, taskId);
+    task = enrichTaskState({
+      ...task,
+      subagentModelConfig: selectedProviderConfig,
+    });
+
+    if (task.currentStage !== expectedStage) {
+      return res.status(400).json({
+        error: 'Lane execution is not allowed for current stage',
+        currentStage: task.currentStage,
+        requiredStage: expectedStage,
+      });
+    }
+
+    const laneResult = await runHarnessSubagentLane({
+      projectPath,
+      task,
+      lane,
+    });
+
+    task = buildLaneTaskUpdate(task, laneResult);
+    await writeTask(projectPath, task);
+    await writeCurrentTaskPointer(projectPath, task);
+
+    const sequence = await getNextRunSequence(projectPath, task.taskId);
+    const role = lane === 'review' ? 'reviewer' : 'validator';
+    const stage = expectedStage;
+    const runPath = await writeRunRecord(projectPath, task.taskId, {
+      runId: `${task.taskId}-${role}-${sequence.toString().padStart(3, '0')}`,
+      taskId: task.taskId,
+      sessionId: laneResult.sessionId || null,
+      sequence,
+      role,
+      stage,
+      status: laneResult.status,
+      inputPackVersion: task.activePackVersions?.[lane === 'review' ? 'review' : 'validation'] || null,
+      findingsCount: laneResult.blockers.length,
+      blockers: laneResult.blockers,
+      summary: laneResult.summary,
+      evidencePaths: laneResult.evidencePaths,
+      modelResolution: laneResult.modelResolution,
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      rawAssistantText: laneResult.rawAssistantText,
+    });
+
+    await appendTaskEvent(projectPath, task.taskId, {
+      type: 'lane_completed',
+      lane,
+      status: laneResult.status,
+      blockers: laneResult.blockers,
+      sessionId: laneResult.sessionId || null,
+      summary: laneResult.summary,
+      runPath,
+    });
+
+    return res.json({
+      success: true,
+      task,
+      lane,
+      result: laneResult,
+      runPath,
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Harness task or lane pack not found' });
+    }
+    console.error('[HARNESS] Failed to run lane subagent:', error);
+    res.status(500).json({ error: error?.message || 'Failed to run lane subagent' });
   }
 });
 

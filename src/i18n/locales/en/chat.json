@@ -270,13 +270,27 @@
     "chat": "Chat",
     "harness": "Harness Flow",
     "toggleTitle": "Switch between chat mode and Harness flow",
+    "scenarioLabel": "Scenario",
+    "scenarioHelp": "This only guides and blocks workflow commands. It never blocks normal chat.",
+    "scenarioBanner": "Current scenario: {{scene}} · Recommended command flow: {{commands}}",
+    "scenarios": {
+      "feature": "New feature",
+      "upgrade": "Optimize / upgrade",
+      "bugfix": "Bug fix"
+    },
     "disabledNoClaude": "This project has not enabled the shared .claude workspace system. Only regular chat is available.",
     "disabledGeneric": "Harness flow is currently unavailable.",
     "disabledWithReason": "Harness flow is currently unavailable: {{reason}}",
     "bannerHarness": "Harness flow is enabled. Team workflow commands will run through the shared Harness pipeline.",
     "bannerChatAvailable": "You are in chat mode. Switch to Harness flow to run the shared team workflow commands.",
-    "commandRequiresHarness": "This is a team workflow command. Switch to Harness flow before running it.",
-    "freeformBlocked": "The current Harness entry accepts shared team workflow commands. Use a supported workflow command to continue.",
+    "stageBlocked": "The current stage does not allow {{command}}.\n\nCurrent stage: {{currentStage}}\nSuggested now: {{commands}}",
+    "scenarioBlocked": "The current scenario is {{scene}}, so {{command}} is not part of the recommended workflow.\n\nCurrent stage: {{currentStage}}\nSuggested now: {{commands}}",
+    "stageNotStarted": "not started",
+    "noAllowedCommands": "No workflow commands are currently available",
+    "reviewLaneCompleted": "Review subthread completed: {{status}}. Summary: {{summary}}. Blockers: {{blockers}}",
+    "validationLaneCompleted": "Validation subthread completed: {{status}}. Summary: {{summary}}. Blockers: {{blockers}}",
+    "noSummary": "No summary",
+    "noBlockers": "None",
     "dropImages": "Drop images here",
     "taskBanner": {
       "task": "Current task: {{value}}",
@@ -289,10 +303,12 @@
   },
   "harness": {
     "helpAriaLabel": "Show help",
+    "workbenchDescription": "This workbench shows the current workspace, command registry, artifacts, timeline, gate, and evaluation state in one place.",
     "actions": {
       "refresh": "Refresh",
       "refreshingArtifacts": "Refreshing...",
       "refreshArtifacts": "Refresh artifacts",
+      "resetCurrentTask": "Reset current task",
       "markPassed": "Mark passed",
       "markFailed": "Mark failed",
       "approve": "Approve",
@@ -307,6 +323,9 @@
       "writeFeedback": "Write feedback",
       "initProject": "Initialize current project",
       "processing": "Processing..."
+    },
+    "reset": {
+      "confirm": "Reset the current task? This clears the active task pointer but keeps the runtime files that are already on disk."
     },
     "labels": {
       "harnessAvailability": "Harness availability",

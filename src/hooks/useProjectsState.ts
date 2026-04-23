@@ -16,6 +16,7 @@ type UseProjectsStateArgs = {
   latestMessage: AppSocketMessage | null;
   isMobile: boolean;
   activeSessions: Set<string>;
+  processingSessions: Set<string>;
 };
 
 type FetchProjectsOptions = {
@@ -132,6 +133,7 @@ export function useProjectsState({
   latestMessage,
   isMobile,
   activeSessions,
+  processingSessions,
 }: UseProjectsStateArgs) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -155,6 +157,7 @@ export function useProjectsState({
   const [externalMessageUpdate, setExternalMessageUpdate] = useState(0);
 
   const loadingProgressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingProjectsUpdateRef = useRef<Project[] | null>(null);
 
   const fetchProjects = useCallback(async ({ showLoadingState = true }: FetchProjectsOptions = {}) => {
     try {
@@ -186,6 +189,49 @@ export function useProjectsState({
     // Keep chat view stable while still syncing sidebar/session metadata in background.
     await fetchProjects({ showLoadingState: false });
   }, [fetchProjects]);
+
+  const applyProjectsUpdate = useCallback((updatedProjects: Project[]) => {
+    const hasActiveSession =
+      (selectedSession && activeSessions.has(selectedSession.id)) ||
+      (activeSessions.size > 0 && Array.from(activeSessions).some((id) => id.startsWith('new-session-')));
+
+    if (
+      hasActiveSession &&
+      !isUpdateAdditive(projects, updatedProjects, selectedProject, selectedSession)
+    ) {
+      return;
+    }
+
+    setProjects(updatedProjects);
+
+    if (!selectedProject) {
+      return;
+    }
+
+    const updatedSelectedProject = updatedProjects.find(
+      (project) => project.name === selectedProject.name,
+    );
+
+    if (!updatedSelectedProject) {
+      return;
+    }
+
+    if (serialize(updatedSelectedProject) !== serialize(selectedProject)) {
+      setSelectedProject(updatedSelectedProject);
+    }
+
+    if (!selectedSession) {
+      return;
+    }
+
+    const updatedSelectedSession = getProjectSessions(updatedSelectedProject).find(
+      (session) => session.id === selectedSession.id,
+    );
+
+    if (!updatedSelectedSession) {
+      setSelectedSession(null);
+    }
+  }, [activeSessions, projects, selectedProject, selectedSession]);
 
   const openSettings = useCallback((tab = 'tools') => {
     setSettingsInitialTab(tab);
@@ -250,49 +296,36 @@ export function useProjectsState({
       }
     }
 
-    const hasActiveSession =
-      (selectedSession && activeSessions.has(selectedSession.id)) ||
-      (activeSessions.size > 0 && Array.from(activeSessions).some((id) => id.startsWith('new-session-')));
-
     const updatedProjects = projectsMessage.projects;
-
-    if (
-      hasActiveSession &&
-      !isUpdateAdditive(projects, updatedProjects, selectedProject, selectedSession)
-    ) {
-      return;
-    }
-
-    setProjects(updatedProjects);
-
-    if (!selectedProject) {
-      return;
-    }
-
-    const updatedSelectedProject = updatedProjects.find(
-      (project) => project.name === selectedProject.name,
+    const isSelectedSessionProcessing = Boolean(
+      selectedSession && processingSessions.has(selectedSession.id),
     );
 
-    if (!updatedSelectedProject) {
+    if (isSelectedSessionProcessing) {
+      pendingProjectsUpdateRef.current = updatedProjects;
       return;
     }
 
-    if (serialize(updatedSelectedProject) !== serialize(selectedProject)) {
-      setSelectedProject(updatedSelectedProject);
-    }
+    applyProjectsUpdate(updatedProjects);
+  }, [activeSessions, applyProjectsUpdate, latestMessage, processingSessions, projects, selectedProject, selectedSession]);
 
+  useEffect(() => {
     if (!selectedSession) {
       return;
     }
 
-    const updatedSelectedSession = getProjectSessions(updatedSelectedProject).find(
-      (session) => session.id === selectedSession.id,
-    );
-
-    if (!updatedSelectedSession) {
-      setSelectedSession(null);
+    if (processingSessions.has(selectedSession.id)) {
+      return;
     }
-  }, [latestMessage, selectedProject, selectedSession, activeSessions, projects]);
+
+    const pendingProjectsUpdate = pendingProjectsUpdateRef.current;
+    if (!pendingProjectsUpdate) {
+      return;
+    }
+
+    pendingProjectsUpdateRef.current = null;
+    applyProjectsUpdate(pendingProjectsUpdate);
+  }, [applyProjectsUpdate, processingSessions, selectedSession]);
 
   useEffect(() => {
     return () => {

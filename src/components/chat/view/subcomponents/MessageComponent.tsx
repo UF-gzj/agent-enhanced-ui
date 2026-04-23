@@ -24,6 +24,7 @@ type DiffLine = {
 type MessageComponentProps = {
   message: ChatMessage;
   prevMessage: ChatMessage | null;
+  animateIn?: boolean;
   createDiff: (oldStr: string, newStr: string) => DiffLine[];
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
@@ -44,7 +45,54 @@ type InteractiveOption = {
 type PermissionGrantState = 'idle' | 'granted' | 'error';
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
+const safeSerialize = (value: unknown): string => {
+  if (value === undefined) {
+    return 'undefined';
+  }
+
+  try {
+    return JSON.stringify(value) ?? 'null';
+  } catch {
+    return String(value);
+  }
+};
+
+const getMessageRenderSignature = (message: ChatMessage) =>
+  [
+    message.id,
+    message.messageId,
+    message.type,
+    message.timestamp instanceof Date ? message.timestamp.toISOString() : String(message.timestamp),
+    message.content || '',
+    message.reasoning || '',
+    message.isThinking ? 'thinking' : '',
+    message.isStreaming ? 'streaming' : '',
+    message.isInteractivePrompt ? 'interactive' : '',
+    message.isToolUse ? 'tool' : '',
+    message.toolName || '',
+    message.toolId || '',
+    safeSerialize(message.toolInput),
+    safeSerialize(message.toolResult),
+    message.isSubagentContainer ? 'subagent' : '',
+    safeSerialize(message.subagentState),
+    message.isTaskNotification ? 'task' : '',
+    message.taskStatus || '',
+    safeSerialize(message.images),
+  ].join('|');
+
+const areMessagesRenderEqual = (left: ChatMessage | null, right: ChatMessage | null) => {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return getMessageRenderSignature(left) === getMessageRenderSignature(right);
+};
+
+const MessageComponent = memo(({ message, prevMessage, animateIn = false, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -70,7 +118,8 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
   const shouldShowAssistantCopyControl = message.type === 'assistant' &&
     assistantCopyContent.trim().length > 0 &&
     !isCommandOrFileEditToolResponse &&
-    !message.isThinking;
+    !message.isThinking &&
+    !message.isStreaming;
 
 
   useEffect(() => {
@@ -115,7 +164,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
       ref={messageRef}
       data-message-timestamp={message.timestamp || undefined}
       data-testid={`chat-message-${message.type}`}
-      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+      className={`chat-message ${animateIn ? 'chat-message-enter' : ''} ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (
         /* User message bubble on the right */
@@ -457,18 +506,30 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
               </div>
             )}
 
-            {(shouldShowAssistantCopyControl || !isGrouped) && (
+            {(shouldShowAssistantCopyControl || (!isGrouped && !message.isStreaming)) && (
               <div className="mt-1 flex w-full items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {shouldShowAssistantCopyControl && (
                   <MessageCopyControl content={assistantCopyContent} messageType="assistant" />
                 )}
-                {!isGrouped && <span>{formattedTime}</span>}
+                {!isGrouped && !message.isStreaming && <span>{formattedTime}</span>}
               </div>
             )}
           </div>
         </div>
       )}
     </div>
+  );
+}, (previousProps, nextProps) => {
+  return (
+    areMessagesRenderEqual(previousProps.message, nextProps.message) &&
+    areMessagesRenderEqual(previousProps.prevMessage, nextProps.prevMessage) &&
+    previousProps.animateIn === nextProps.animateIn &&
+    previousProps.autoExpandTools === nextProps.autoExpandTools &&
+    previousProps.showRawParameters === nextProps.showRawParameters &&
+    previousProps.showThinking === nextProps.showThinking &&
+    previousProps.provider === nextProps.provider &&
+    previousProps.selectedProject?.fullPath === nextProps.selectedProject?.fullPath &&
+    previousProps.selectedProject?.path === nextProps.selectedProject?.path
   );
 });
 

@@ -25,6 +25,8 @@ type HarnessPanelProps = {
   isVisible: boolean;
 };
 
+const HARNESS_CURRENT_TASK_RESET_EVENT = 'harness-current-task-reset';
+
 export default function HarnessPanel({ selectedProject, isVisible }: HarnessPanelProps) {
   const { t } = useTranslation('chat');
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -409,6 +411,51 @@ export default function HarnessPanel({ selectedProject, isVisible }: HarnessPane
     }
   }, [projectPath, refreshTask, task]);
 
+  const handleResetCurrentTask = useCallback(async () => {
+    if (!projectPath) {
+      return;
+    }
+
+    const confirmed = window.confirm(t('harness.reset.confirm'));
+    if (!confirmed) {
+      return;
+    }
+
+    setGateActionLoading('task:reset');
+    setError(null);
+    try {
+      const response = await authenticatedFetch('/api/harness/projects/reset-current-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ projectPath }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      setTaskId(null);
+      setTask(null);
+      setArtifacts([]);
+      setPacks([]);
+      setRuns([]);
+      setTimeline([]);
+      setCheckpoints([]);
+      window.dispatchEvent(
+        new CustomEvent(HARNESS_CURRENT_TASK_RESET_EVENT, {
+          detail: { projectPath },
+        }),
+      );
+      await refreshTask();
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : 'Failed to reset current task');
+    } finally {
+      setGateActionLoading(null);
+    }
+  }, [projectPath, refreshTask, t]);
+
   const handleCreateCheckpoint = useCallback(async () => {
     if (!task || !projectPath) {
       return;
@@ -618,7 +665,7 @@ export default function HarnessPanel({ selectedProject, isVisible }: HarnessPane
                 />
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                二期开始展示 workspace prime、命令注册、工件、timeline 与 gate 联动。
+                {t('harness.workbenchDescription')}
               </p>
             </div>
             <div className="flex gap-2">
@@ -638,6 +685,16 @@ export default function HarnessPanel({ selectedProject, isVisible }: HarnessPane
                 {gateActionLoading === 'artifacts:refresh'
                   ? t('harness.actions.refreshingArtifacts')
                   : t('harness.actions.refreshArtifacts')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleResetCurrentTask()}
+                disabled={!taskId || Boolean(gateActionLoading)}
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground transition hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {gateActionLoading === 'task:reset'
+                  ? t('harness.actions.processing')
+                  : t('harness.actions.resetCurrentTask')}
               </button>
             </div>
           </div>

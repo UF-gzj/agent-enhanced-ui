@@ -86,11 +86,13 @@ function ChatInterface({
     chatMessages,
     addMessage,
     clearMessages,
+    resetSessionView,
     rewindMessages,
     isLoading,
     setIsLoading,
     currentSessionId,
     setCurrentSessionId,
+    clearedSessionId,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
     hasMoreMessages,
@@ -124,6 +126,8 @@ function ChatInterface({
     autoScrollToBottom,
     externalMessageUpdate,
     processingSessions,
+    onSessionInactive,
+    onSessionNotProcessing,
     resetStreamingState,
     pendingViewSessionRef,
     sessionStore,
@@ -138,6 +142,8 @@ function ChatInterface({
     thinkingMode,
     setThinkingMode,
     conversationMode,
+    harnessScenario,
+    recommendedHarnessFlow,
     harnessAvailability,
     harnessAvailabilityReason,
     activeHarnessTaskId,
@@ -146,6 +152,7 @@ function ChatInterface({
     activePrimeState,
     activeHarnessGate,
     handleConversationModeToggle,
+    handleHarnessScenarioChange,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
@@ -185,6 +192,7 @@ function ChatInterface({
     selectedProject,
     selectedSession,
     currentSessionId,
+    clearedSessionId,
     provider,
     permissionMode,
     cyclePermissionMode,
@@ -206,6 +214,7 @@ function ChatInterface({
     scrollToBottom,
     addMessage,
     clearMessages,
+    resetSessionView,
     rewindMessages,
     setIsLoading,
     setCanAbortSession,
@@ -367,6 +376,8 @@ function ChatInterface({
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
           conversationMode={conversationMode}
+          harnessScenario={harnessScenario}
+          recommendedHarnessFlow={recommendedHarnessFlow}
           harnessAvailability={harnessAvailability}
           harnessAvailabilityReason={harnessAvailabilityReason}
           activeHarnessTaskId={activeHarnessTaskId}
@@ -375,6 +386,7 @@ function ChatInterface({
           activePrimeState={activePrimeState}
           activeHarnessGate={activeHarnessGate}
           onConversationModeToggle={handleConversationModeToggle}
+          onHarnessScenarioChange={handleHarnessScenarioChange}
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
           tokenBudget={tokenBudget}

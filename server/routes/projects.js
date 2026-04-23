@@ -152,6 +152,49 @@ export async function validateWorkspacePath(requestedPath) {
   }
 }
 
+// Backward-compatible project creation endpoint used by the existing app flow and e2e suite.
+router.post('/create', async (req, res) => {
+  try {
+    const { path: projectPath } = req.body || {};
+
+    if (!projectPath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    const validation = await validateWorkspacePath(projectPath);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Invalid workspace path',
+        details: validation.error,
+      });
+    }
+
+    try {
+      const project = await addProjectManually(validation.resolvedPath);
+      return res.json({
+        success: true,
+        project,
+        message: 'Project added successfully',
+      });
+    } catch (error) {
+      if (error.message?.includes('already configured for path')) {
+        return res.json({
+          success: true,
+          message: 'Project already exists',
+        });
+      }
+
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error creating project:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to create project',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
 /**
  * Create a new workspace
  * POST /api/projects/create-workspace

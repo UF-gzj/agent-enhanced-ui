@@ -117,8 +117,8 @@
 ### 6.1 克隆项目
 
 ```bash
-git clone https://github.com/siteboon/claudecodeui.git
-cd claudecodeui
+git clone https://github.com/UF-gzj/agent-enhanced-ui.git
+cd agent-enhanced-ui
 ```
 
 如果你当前用的是这个改造后的本地仓库，就直接进入项目目录即可。

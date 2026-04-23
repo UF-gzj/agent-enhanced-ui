@@ -102,6 +102,70 @@ function createEmptySlot(): SessionSlot {
   };
 }
 
+function toTimestampValue(value: string | undefined): number {
+  if (!value) {
+    return Number.NaN;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function getMessageComparableContent(message: NormalizedMessage): string | null {
+  switch (message.kind) {
+    case 'text':
+    case 'thinking':
+    case 'stream_delta':
+    case 'error':
+    case 'interactive_prompt':
+      return typeof message.content === 'string'
+        ? message.content.trim()
+        : typeof message.text === 'string'
+          ? message.text.trim()
+          : null;
+    case 'task_notification':
+      return typeof message.summary === 'string' ? message.summary.trim() : null;
+    default:
+      return null;
+  }
+}
+
+function isEphemeralMessage(message: NormalizedMessage): boolean {
+  return (
+    message.id.startsWith('local_') ||
+    message.id.startsWith('text_') ||
+    message.id.startsWith('__streaming_') ||
+    message.kind === 'stream_delta'
+  );
+}
+
+function isSemanticallyPersistedDuplicate(
+  realtimeMessage: NormalizedMessage,
+  serverMessage: NormalizedMessage,
+): boolean {
+  if (realtimeMessage.kind !== serverMessage.kind) {
+    return false;
+  }
+
+  if (realtimeMessage.kind === 'text' && realtimeMessage.role !== serverMessage.role) {
+    return false;
+  }
+
+  const realtimeContent = getMessageComparableContent(realtimeMessage);
+  const serverContent = getMessageComparableContent(serverMessage);
+  if (!realtimeContent || !serverContent || realtimeContent !== serverContent) {
+    return false;
+  }
+
+  const realtimeTimestamp = toTimestampValue(realtimeMessage.timestamp);
+  const serverTimestamp = toTimestampValue(serverMessage.timestamp);
+  if (!Number.isFinite(realtimeTimestamp) || !Number.isFinite(serverTimestamp)) {
+    return false;
+  }
+
+  return Math.abs(realtimeTimestamp - serverTimestamp) <= 30_000;
+}
+
 /**
  * Compute merged messages: server + realtime, deduped by id.
  * Server messages take priority (they're the persisted source of truth).
@@ -110,10 +174,46 @@ function createEmptySlot(): SessionSlot {
 function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
   if (realtime.length === 0) return server;
   if (server.length === 0) return realtime;
+
   const serverIds = new Set(server.map(m => m.id));
-  const extra = realtime.filter(m => !serverIds.has(m.id));
+  const extra = realtime.filter((message) => {
+    if (serverIds.has(message.id)) {
+      return false;
+    }
+
+    return !server.some((serverMessage) => isSemanticallyPersistedDuplicate(message, serverMessage));
+  });
+
   if (extra.length === 0) return server;
-  return [...server, ...extra];
+
+  const mergedRealtime: NormalizedMessage[] = [];
+  for (const message of extra) {
+    const duplicateIndex = mergedRealtime.findIndex((existingMessage) => {
+      if (existingMessage.id === message.id) {
+        return true;
+      }
+
+      if (
+        !isSemanticallyPersistedDuplicate(message, existingMessage) &&
+        !isSemanticallyPersistedDuplicate(existingMessage, message)
+      ) {
+        return false;
+      }
+
+      return isEphemeralMessage(message) || isEphemeralMessage(existingMessage);
+    });
+
+    if (duplicateIndex === -1) {
+      mergedRealtime.push(message);
+      continue;
+    }
+
+    if (isEphemeralMessage(mergedRealtime[duplicateIndex]) && !isEphemeralMessage(message)) {
+      mergedRealtime[duplicateIndex] = message;
+    }
+  }
+
+  return mergedRealtime.length === 0 ? server : [...server, ...mergedRealtime];
 }
 
 /**
@@ -415,6 +515,27 @@ export function useSessionStore() {
   }, [notify]);
 
   /**
+   * Reset the visible state for a session while keeping the session id stable.
+   * Used for commands like Claude's /clear, which clear context but do not
+   * require switching to a brand-new session in the UI.
+   */
+  const resetSession = useCallback((sessionId: string) => {
+    const slot = getSlot(sessionId);
+    slot.serverMessages = EMPTY;
+    slot.realtimeMessages = EMPTY;
+    slot.merged = EMPTY;
+    slot._lastServerRef = EMPTY;
+    slot._lastRealtimeRef = EMPTY;
+    slot.status = 'idle';
+    slot.fetchedAt = Date.now();
+    slot.total = 0;
+    slot.hasMore = false;
+    slot.offset = 0;
+    slot.tokenUsage = null;
+    notify(sessionId);
+  }, [getSlot, notify]);
+
+  /**
    * Get merged messages for a session (for rendering).
    */
   const getMessages = useCallback((sessionId: string): NormalizedMessage[] => {
@@ -441,6 +562,7 @@ export function useSessionStore() {
     isStale,
     updateStreaming,
     finalizeStreaming,
+    resetSession,
     clearRealtime,
     getMessages,
     getSessionSlot,
@@ -448,7 +570,7 @@ export function useSessionStore() {
     getSlot, has, fetchFromServer, fetchMore,
     appendRealtime, appendRealtimeBatch, refreshFromServer,
     setActiveSession, setStatus, isStale, updateStreaming, finalizeStreaming,
-    clearRealtime, getMessages, getSessionSlot,
+    resetSession, clearRealtime, getMessages, getSessionSlot,
   ]);
 }
 

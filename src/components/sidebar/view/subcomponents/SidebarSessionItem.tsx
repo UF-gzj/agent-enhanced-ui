@@ -66,7 +66,7 @@ export default function SidebarSessionItem({
     <div className="group relative">
       {sessionView.isActive && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+          <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_0_2px_rgba(34,197,94,0.16)]" />
         </div>
       )}
 

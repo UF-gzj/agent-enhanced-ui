@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PermissionMode, Provider } from '../../types/types';
-import type { HarnessAvailability } from '../../../../types/app';
+import type { HarnessAvailability, HarnessWorkflowScenario } from '../../../../types/app';
 import ThinkingModeSelector from './ThinkingModeSelector';
 import TokenUsagePie from './TokenUsagePie';
 
@@ -12,9 +12,11 @@ interface ChatInputControlsProps {
   thinkingMode: string;
   setThinkingMode: React.Dispatch<React.SetStateAction<string>>;
   conversationMode: 'chat' | 'harness';
+  harnessScenario: HarnessWorkflowScenario;
   harnessAvailability: HarnessAvailability;
   harnessAvailabilityReason: string | null;
   onConversationModeToggle: () => void;
+  onHarnessScenarioChange: (scenario: HarnessWorkflowScenario) => void;
   tokenBudget: { used?: number; total?: number } | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
@@ -32,9 +34,11 @@ export default function ChatInputControls({
   thinkingMode,
   setThinkingMode,
   conversationMode,
+  harnessScenario,
   harnessAvailability,
   harnessAvailabilityReason,
   onConversationModeToggle,
+  onHarnessScenarioChange,
   tokenBudget,
   slashCommandsCount,
   onToggleCommandMenu,
@@ -108,11 +112,33 @@ export default function ChatInputControls({
           : t('conversationMode.chat')}
       </button>
 
+      {harnessAvailability === 'available' && (
+        <label
+          className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground sm:px-3 sm:py-1.5 sm:text-sm"
+          title={t('conversationMode.scenarioHelp')}
+        >
+          <span>{t('conversationMode.scenarioLabel')}</span>
+          <select
+            data-testid="harness-scenario-select"
+            value={harnessScenario}
+            onChange={(event) => onHarnessScenarioChange(event.target.value as HarnessWorkflowScenario)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:border-primary sm:text-sm"
+            style={{ fontFamily: 'inherit' }}
+          >
+            <option value="feature">{t('conversationMode.scenarios.feature')}</option>
+            <option value="upgrade">{t('conversationMode.scenarios.upgrade')}</option>
+            <option value="bugfix">{t('conversationMode.scenarios.bugfix')}</option>
+          </select>
+        </label>
+      )}
+
       {provider === 'claude' && (
         <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" />
       )}
 
-      <TokenUsagePie used={tokenBudget?.used || 0} total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000} />
+      {typeof tokenBudget?.used === 'number' && typeof tokenBudget?.total === 'number' ? (
+        <TokenUsagePie used={tokenBudget.used} total={tokenBudget.total} />
+      ) : null}
 
       <button
         type="button"
@@ -138,12 +164,16 @@ export default function ChatInputControls({
         )}
       </button>
 
-      {hasInput && (
+      <div className="flex h-7 w-7 items-center justify-center sm:h-8 sm:w-8">
         <button
           type="button"
           onClick={onClearInput}
-          className="group flex h-7 w-7 items-center justify-center rounded-lg border border-border/50 bg-card shadow-sm transition-all duration-200 hover:bg-accent/60 sm:h-8 sm:w-8"
+          className={`group flex h-7 w-7 items-center justify-center rounded-lg border border-border/50 bg-card shadow-sm transition-all duration-200 hover:bg-accent/60 sm:h-8 sm:w-8 ${
+            hasInput ? 'opacity-100' : 'pointer-events-none opacity-0'
+          }`}
           title={t('input.clearInput', { defaultValue: 'Clear input' })}
+          aria-hidden={!hasInput}
+          tabIndex={hasInput ? 0 : -1}
         >
           <svg
             className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-foreground sm:h-4 sm:w-4"
@@ -154,7 +184,7 @@ export default function ChatInputControls({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-      )}
+      </div>
 
       {isUserScrolledUp && hasMessages && (
         <button

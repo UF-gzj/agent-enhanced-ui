@@ -16,6 +16,7 @@ import type {
   HarnessAvailability,
   HarnessGateState,
   HarnessTaskSummaryState,
+  HarnessWorkflowScenario,
 } from '../../../../types/app';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
@@ -52,6 +53,8 @@ interface ChatComposerProps {
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
   conversationMode: 'chat' | 'harness';
+  harnessScenario: HarnessWorkflowScenario;
+  recommendedHarnessFlow: string[];
   harnessAvailability: HarnessAvailability;
   harnessAvailabilityReason: string | null;
   activeHarnessTaskId: string | null;
@@ -60,6 +63,7 @@ interface ChatComposerProps {
   activePrimeState: 'unprimed' | 'primed' | 'stale';
   activeHarnessGate: HarnessGateState | null;
   onConversationModeToggle: () => void;
+  onHarnessScenarioChange: (scenario: HarnessWorkflowScenario) => void;
   thinkingMode: string;
   setThinkingMode: Dispatch<SetStateAction<string>>;
   tokenBudget: { used?: number; total?: number } | null;
@@ -117,6 +121,8 @@ export default function ChatComposer({
   permissionMode,
   onModeSwitch,
   conversationMode,
+  harnessScenario,
+  recommendedHarnessFlow,
   harnessAvailability,
   harnessAvailabilityReason,
   activeHarnessTaskId,
@@ -125,6 +131,7 @@ export default function ChatComposer({
   activePrimeState,
   activeHarnessGate,
   onConversationModeToggle,
+  onHarnessScenarioChange,
   thinkingMode,
   setThinkingMode,
   tokenBudget,
@@ -171,6 +178,22 @@ export default function ChatComposer({
   sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+  const stageDisplayMap: Record<string, string> = {
+    prim: '/core:prime',
+    pinit: '/core:init-project',
+    refr: '/core:refresh-project-context',
+    bref: '/core:backend-review-plan',
+    pln: '/core:plan',
+    exec: '/core:execute',
+    iter: '/core:iterate',
+    rca: '/bugfix:rca',
+    fix: '/bugfix:implement-fix',
+    revu: '/validation:review',
+    vald: '/validation:validate',
+    xrep: '/validation:execution-report',
+    srev: '/validation:system-review',
+    cmit: '/commit',
+  };
   const textareaRect = textareaRef.current?.getBoundingClientRect();
   const commandMenuPosition = {
     top: textareaRect ? Math.max(16, textareaRect.top - 316) : 0,
@@ -217,9 +240,11 @@ export default function ChatComposer({
           thinkingMode={thinkingMode}
           setThinkingMode={setThinkingMode}
           conversationMode={conversationMode}
+          harnessScenario={harnessScenario}
           harnessAvailability={harnessAvailability}
           harnessAvailabilityReason={harnessAvailabilityReason}
           onConversationModeToggle={onConversationModeToggle}
+          onHarnessScenarioChange={onHarnessScenarioChange}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={onToggleCommandMenu}
@@ -245,6 +270,15 @@ export default function ChatComposer({
           </div>
         )}
 
+        {!hasQuestionPanel && harnessAvailability === 'available' && (
+          <div className="mt-2 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-xs text-primary/90">
+            {t('conversationMode.scenarioBanner', {
+              scene: t(`conversationMode.scenarios.${harnessScenario}`),
+              commands: recommendedHarnessFlow.join(' -> '),
+            })}
+          </div>
+        )}
+
         {activeHarnessTaskId && (
           <div
             data-testid="active-harness-task-banner"
@@ -252,7 +286,9 @@ export default function ChatComposer({
           >
             {t('conversationMode.taskBanner.task', { value: activeHarnessTaskId })}
             {activeHarnessStage
-              ? t('conversationMode.taskBanner.stage', { value: activeHarnessStage })
+              ? t('conversationMode.taskBanner.stage', {
+                  value: stageDisplayMap[activeHarnessStage] || activeHarnessStage,
+                })
               : ''}
             {taskSummaryState
               ? t('conversationMode.taskBanner.status', { value: taskSummaryState })

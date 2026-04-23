@@ -153,11 +153,18 @@ function mapCliOptionsToSDK(options = {}) {
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
   sdkOptions.env = { ...process.env };
 
-  // Use CLAUDE_CLI_PATH if explicitly set, otherwise fall back to 'claude' on PATH.
-  // The SDK 0.2.113+ looks for a bundled native binary optional dep by default;
-  // this fallback ensures users who installed via the official installer still work
-  // even when npm prune --production has removed those optional deps.
-  sdkOptions.pathToClaudeCodeExecutable = process.env.CLAUDE_CLI_PATH || 'claude';
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    const npmBin = path.join(appData, 'npm');
+    const currentPath = sdkOptions.env.PATH || sdkOptions.env.Path || process.env.PATH || '';
+    if (!currentPath.toLowerCase().includes(npmBin.toLowerCase())) {
+      sdkOptions.env.PATH = `${currentPath};${npmBin}`;
+    }
+  }
+
+  if (process.env.CLAUDE_CLI_PATH) {
+    sdkOptions.pathToClaudeCodeExecutable = process.env.CLAUDE_CLI_PATH;
+  }
 
   // Map working directory
   if (cwd) {
@@ -704,6 +711,16 @@ async function queryClaudeSDK(command, options = {}, ws) {
   } catch (error) {
     console.error('SDK query error:', error);
 
+    const errorMessage = typeof error?.message === 'string' ? error.message : '';
+    const normalizedErrorMessage = errorMessage.toLowerCase();
+    const isAbortLikeError =
+      normalizedErrorMessage.includes('interrupted') ||
+      normalizedErrorMessage.includes('cancelled') ||
+      normalizedErrorMessage.includes('canceled') ||
+      normalizedErrorMessage.includes('ede_diagnostic') ||
+      normalizedErrorMessage.includes('result_type=user') ||
+      normalizedErrorMessage.includes('stop_reason=null');
+
     // Clean up session on error
     if (capturedSessionId) {
       removeSession(capturedSessionId);
@@ -711,6 +728,18 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Clean up temporary image files on error
     await cleanupTempFiles(tempImagePaths, tempDir);
+
+    if (isAbortLikeError) {
+      ws.send(createNormalizedMessage({
+        kind: 'complete',
+        exitCode: 0,
+        aborted: true,
+        success: true,
+        sessionId: capturedSessionId || sessionId || null,
+        provider: 'claude',
+      }));
+      return;
+    }
 
     // Check if Claude CLI is installed for a clearer error message
     const installed = await providerAuthService.isProviderInstalled('claude');

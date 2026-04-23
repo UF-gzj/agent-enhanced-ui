@@ -252,13 +252,27 @@
     "chat": "普通对话",
     "harness": "Harness 流程",
     "toggleTitle": "切换普通对话与 Harness 流程",
+    "scenarioLabel": "场景",
+    "scenarioHelp": "只用于推荐和约束流程命令，不会阻塞普通对话。",
+    "scenarioBanner": "当前场景：{{scene}} · 推荐命令流：{{commands}}",
+    "scenarios": {
+      "feature": "新功能开发",
+      "upgrade": "旧功能优化 / 升级",
+      "bugfix": "BUG 修复"
+    },
     "disabledNoClaude": "当前项目未启用团队共享系统，仅支持普通聊天。",
     "disabledGeneric": "当前无法启用 Harness 流程。",
     "disabledWithReason": "当前无法启用 Harness 流程：{{reason}}",
     "bannerHarness": "Harness 流程已启用。团队流程命令会通过共享的 Harness 流水线执行。",
     "bannerChatAvailable": "当前为普通对话模式。切到 Harness 流程后，可执行团队流程命令。",
-    "commandRequiresHarness": "这是团队流程命令。请先切换到 Harness 流程后再执行。",
-    "freeformBlocked": "当前 Harness 入口只接受团队共享系统的流程命令。请使用受支持的流程命令继续。",
+    "stageBlocked": "当前阶段不允许执行 {{command}}。\n\n当前阶段：{{currentStage}}\n当前推荐：{{commands}}",
+    "scenarioBlocked": "当前场景是 {{scene}}，{{command}} 不属于这条推荐命令流。\n\n当前阶段：{{currentStage}}\n当前推荐：{{commands}}",
+    "stageNotStarted": "未开始",
+    "noAllowedCommands": "暂无可直接执行的流程命令",
+    "reviewLaneCompleted": "Review 子线程已完成：{{status}}。总结：{{summary}}。阻塞项：{{blockers}}",
+    "validationLaneCompleted": "Validation 子线程已完成：{{status}}。总结：{{summary}}。阻塞项：{{blockers}}",
+    "noSummary": "无总结",
+    "noBlockers": "无",
     "dropImages": "将图片拖到这里",
     "taskBanner": {
       "task": "当前任务: {{value}}",
@@ -271,10 +285,12 @@
   },
   "harness": {
     "helpAriaLabel": "查看说明",
+    "workbenchDescription": "这里集中展示当前项目的 Workspace、命令、工件、Timeline、Gate 与评估状态。",
     "actions": {
       "refresh": "刷新",
       "refreshingArtifacts": "刷新中...",
       "refreshArtifacts": "刷新工件",
+      "resetCurrentTask": "重置当前任务",
       "markPassed": "标记通过",
       "markFailed": "标记失败",
       "approve": "批准",
@@ -289,6 +305,9 @@
       "writeFeedback": "写入反馈",
       "initProject": "初始化当前项目",
       "processing": "处理中..."
+    },
+    "reset": {
+      "confirm": "确认重置当前任务吗？这会清空当前任务指针，但不会删除已经落盘的运行时文件。"
     },
     "labels": {
       "harnessAvailability": "Harness 可用性",

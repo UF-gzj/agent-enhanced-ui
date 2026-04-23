@@ -7,6 +7,20 @@ import type { NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage, SubagentChildTool } from '../types/types';
 import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
 
+function isAbortLikeErrorContent(content: string): boolean {
+  const normalized = content.toLowerCase();
+
+  return (
+    normalized.includes('ede_diagnostic') ||
+    normalized.includes('result_type=user') ||
+    normalized.includes('stop_reason=null') ||
+    normalized.includes('request interrupted by user') ||
+    normalized.includes('interrupted by user') ||
+    normalized.includes('cancelled') ||
+    normalized.includes('canceled')
+  );
+}
+
 /**
  * Convert NormalizedMessage[] from the session store into ChatMessage[]
  * that the existing UI components expect.
@@ -45,6 +59,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             });
           } else {
             converted.push({
+              id: msg.id,
+              messageId: msg.id,
+              rowid: msg.rowid,
+              sequence: msg.sequence,
               type: 'user',
               content: unescapeWithMathProtection(decodeHtmlEntities(content)),
               timestamp: msg.timestamp,
@@ -55,6 +73,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           text = unescapeWithMathProtection(text);
           text = formatUsageLimitText(text);
           converted.push({
+            id: msg.id,
+            messageId: msg.id,
+            rowid: msg.rowid,
+            sequence: msg.sequence,
             type: 'assistant',
             content: text,
             timestamp: msg.timestamp,
@@ -90,6 +112,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           : null;
 
         converted.push({
+          id: msg.id,
+          messageId: msg.id,
+          rowid: msg.rowid,
+          sequence: msg.sequence,
           type: 'assistant',
           content: '',
           timestamp: msg.timestamp,
@@ -111,18 +137,20 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       }
 
       case 'thinking':
-        if (msg.content?.trim()) {
-          converted.push({
-            type: 'assistant',
-            content: unescapeWithMathProtection(msg.content),
-            timestamp: msg.timestamp,
-            isThinking: true,
-          });
-        }
+        // Keep thinking state in the dedicated status bar.
+        // Rendering transient thinking content in the message list made the chat
+        // body feel unstable and could appear as brief "flash then disappear" text.
         break;
 
       case 'error':
+        if (isAbortLikeErrorContent(msg.content || '')) {
+          break;
+        }
         converted.push({
+          id: msg.id,
+          messageId: msg.id,
+          rowid: msg.rowid,
+          sequence: msg.sequence,
           type: 'error',
           content: msg.content || 'Unknown error',
           timestamp: msg.timestamp,
@@ -131,6 +159,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
 
       case 'interactive_prompt':
         converted.push({
+          id: msg.id,
+          messageId: msg.id,
+          rowid: msg.rowid,
+          sequence: msg.sequence,
           type: 'assistant',
           content: msg.content || '',
           timestamp: msg.timestamp,
@@ -140,6 +172,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
 
       case 'task_notification':
         converted.push({
+          id: msg.id,
+          messageId: msg.id,
+          rowid: msg.rowid,
+          sequence: msg.sequence,
           type: 'assistant',
           content: msg.summary || 'Background task update',
           timestamp: msg.timestamp,
@@ -149,14 +185,12 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'stream_delta':
-        if (msg.content) {
-          converted.push({
-            type: 'assistant',
-            content: msg.content,
-            timestamp: msg.timestamp,
-            isStreaming: true,
-          });
-        }
+        // Keep transient streaming text out of the visible message list.
+        // While it can feel "live", it also causes the chat body to reflow and
+        // can appear as brief flash-in/flash-out content during workflow
+        // commands such as /core:prime. The dedicated status bar still conveys
+        // that the assistant is actively processing, and the finalized text
+        // message is rendered once the response is complete.
         break;
 
       // stream_end, complete, status, permission_*, session_created

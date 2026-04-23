@@ -1,6 +1,7 @@
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'gemini';
 export type ConversationMode = 'chat' | 'harness';
 export type SendMode = 'use_default' | 'force_chat' | 'force_harness';
+export type HarnessWorkflowScenario = 'feature' | 'upgrade' | 'bugfix';
 export type HarnessAvailability =
   | 'available'
   | 'unavailable_no_claude'

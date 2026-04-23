@@ -8,6 +8,9 @@ interface UseChatProviderStateArgs {
   selectedSession: ProjectSession | null;
 }
 
+const isValidClaudeModel = (model: string | null | undefined) =>
+  Boolean(model && CLAUDE_MODELS.OPTIONS.some((option) => option.value === model));
+
 export function useChatProviderState({ selectedSession }: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
@@ -18,7 +21,12 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     return localStorage.getItem('cursor-model') || CURSOR_MODELS.DEFAULT;
   });
   const [claudeModel, setClaudeModel] = useState<string>(() => {
-    return localStorage.getItem('claude-model') || CLAUDE_MODELS.DEFAULT;
+    const storedModel = localStorage.getItem('claude-model');
+    if (isValidClaudeModel(storedModel)) {
+      return storedModel as string;
+    }
+
+    return CLAUDE_MODELS.DEFAULT;
   });
   const [codexModel, setCodexModel] = useState<string>(() => {
     return localStorage.getItem('codex-model') || CODEX_MODELS.DEFAULT;
@@ -46,6 +54,15 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     setProvider(selectedSession.__provider);
     localStorage.setItem('selected-provider', selectedSession.__provider);
   }, [provider, selectedSession]);
+
+  useEffect(() => {
+    if (isValidClaudeModel(claudeModel)) {
+      return;
+    }
+
+    setClaudeModel(CLAUDE_MODELS.DEFAULT);
+    localStorage.setItem('claude-model', CLAUDE_MODELS.DEFAULT);
+  }, [claudeModel]);
 
   useEffect(() => {
     if (lastProviderRef.current === provider) {

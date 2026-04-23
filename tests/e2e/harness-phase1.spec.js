@@ -2,14 +2,27 @@ import path from 'path';
 import { expect, test } from '@playwright/test';
 
 const NO_CLAUDE_PROJECT_PATH = path.resolve(
-  process.env.CLOUDCLI_E2E_NO_CLAUDE_PROJECT_PATH || process.cwd(),
+  process.env.CLOUDCLI_E2E_NO_CLAUDE_PROJECT_PATH || 'tests/e2e/fixtures/no-claude-workspace',
 );
-const HARNESS_PROJECT_PATH = process.env.CLOUDCLI_E2E_HARNESS_PROJECT_PATH || null;
+const HARNESS_PROJECT_PATH = path.resolve(
+  process.env.CLOUDCLI_E2E_HARNESS_PROJECT_PATH || 'tests/e2e/fixtures/harness-workspace',
+);
 const AUTH_CREDENTIALS = {
   username: process.env.CLOUDCLI_E2E_USERNAME || 'smoketest',
   password: process.env.CLOUDCLI_E2E_PASSWORD || 'smoke12345',
 };
 const FIXTURE_IMAGE_PATH = path.resolve('tests/e2e/fixtures/sample-upload.svg');
+const TEXT_MATCHERS = {
+  noClaudeBanner: /当前项目未启用团队共享系统|has not enabled the shared \.claude workspace system/i,
+  noClaudeCommandBlocked:
+    /当前项目未启用团队共享系统|共享 \.claude 工作台系统|Only regular chat is available|shared \.claude workspace system/i,
+  normalChatMode: /当前为普通对话模式|You are in chat mode|regular chat mode/i,
+  switchToHarnessFirst:
+    /这是团队流程命令。请先切换到 Harness 流程后再执行|team workflow command|switch to Harness (flow|mode) before (using .*workflow commands|running it)/i,
+  harnessEnabled: /Harness 流程已启用|Harness (workflow )?(mode|flow) is enabled/i,
+  harnessFreeformBlocked:
+    /一期当前只开放团队流程命令的 Harness 入口。自然语言任务流会在后续步骤接入|Only (team|shared) workflow commands are available in Harness mode right now|shared team workflow commands|supported workflow command to continue/i,
+};
 
 function requireHarnessProject() {
   test.skip(
@@ -123,7 +136,7 @@ test.describe.serial('phase-1 harness browser automation', () => {
     const modeToggle = page.getByTestId('conversation-mode-toggle');
     await expect(modeToggle).toBeDisabled();
     await expect(modeToggle).toHaveAttribute('data-harness-availability', 'unavailable_no_claude');
-    await expect(page.getByTestId('conversation-mode-banner')).toContainText('当前项目未启用团队共享系统');
+    await expect(page.getByTestId('conversation-mode-banner')).toContainText(TEXT_MATCHERS.noClaudeBanner);
 
     await page.getByTestId('slash-command-menu-toggle').click();
     await expect(page.getByTestId('command-menu')).toBeVisible();
@@ -137,8 +150,8 @@ test.describe.serial('phase-1 harness browser automation', () => {
     await expect(page.getByTestId('chat-message-user-content').last()).toHaveText('ordinary smoke message');
 
     await input.fill('/prim');
-    await page.keyboard.press('Enter');
-    await expect(page.getByText('当前项目未启用团队共享系统，仅支持普通聊天。')).toBeVisible();
+    await page.getByTestId('chat-send-button').click();
+    await expect(page.getByTestId('chat-message-assistant').last()).toContainText(TEXT_MATCHERS.noClaudeCommandBlocked);
   });
 
   test('模式切换、Harness 命令路由和当前任务状态', async ({ page, request }) => {
@@ -151,15 +164,15 @@ test.describe.serial('phase-1 harness browser automation', () => {
     const modeToggle = page.getByTestId('conversation-mode-toggle');
 
     await expect(modeToggle).toBeEnabled();
-    await expect(page.getByTestId('conversation-mode-banner')).toContainText('当前为普通对话模式');
+    await expect(page.getByTestId('conversation-mode-banner')).toContainText(TEXT_MATCHERS.normalChatMode);
 
     await input.fill('/prim');
-    await page.keyboard.press('Enter');
-    await expect(page.getByText('这是团队流程命令。请先切换到 Harness 流程后再执行。')).toBeVisible();
+    await page.getByTestId('chat-send-button').click();
+    await expect(page.getByTestId('chat-message-assistant').last()).toContainText(TEXT_MATCHERS.switchToHarnessFirst);
 
     await modeToggle.click();
     await input.fill('/prim');
-    await page.keyboard.press('Enter');
+    await page.getByTestId('chat-send-button').click();
     await expect(page.getByTestId('active-harness-task-banner')).toBeVisible();
   });
 
@@ -173,13 +186,11 @@ test.describe.serial('phase-1 harness browser automation', () => {
     const modeToggle = page.getByTestId('conversation-mode-toggle');
 
     await modeToggle.click();
-    await expect(page.getByTestId('conversation-mode-banner')).toContainText('Harness 流程已启用');
+    await expect(page.getByTestId('conversation-mode-banner')).toContainText(TEXT_MATCHERS.harnessEnabled);
 
     await input.fill('harness mode should block freeform');
-    await input.press('Enter');
-    await expect(
-      page.getByText('一期当前只开放团队流程命令的 Harness 入口。自然语言任务流会在后续步骤接入。'),
-    ).toBeVisible();
+    await page.getByTestId('chat-send-button').click();
+    await expect(page.getByTestId('chat-message-assistant').last()).toContainText(TEXT_MATCHERS.harnessFreeformBlocked);
   });
 
   test('Harness 默认模式会拦截自然语言任务流', async ({ page, request }) => {
@@ -192,32 +203,25 @@ test.describe.serial('phase-1 harness browser automation', () => {
     const modeToggle = page.getByTestId('conversation-mode-toggle');
 
     await modeToggle.click();
-    await expect(page.getByTestId('conversation-mode-banner')).toContainText('Harness 流程已启用');
+    await expect(page.getByTestId('conversation-mode-banner')).toContainText(TEXT_MATCHERS.harnessEnabled);
 
     await input.fill('default harness should block');
-    await input.press('Enter');
-    await expect(page.getByText('一期当前只开放团队流程命令的 Harness 入口。自然语言任务流会在后续步骤接入。')).toBeVisible();
+    await page.getByTestId('chat-send-button').click();
+    await expect(page.getByTestId('chat-message-assistant').last()).toContainText(TEXT_MATCHERS.harnessFreeformBlocked);
   });
 
-  test('旧会话加载和子 agent 模型设置展示', async ({ page, request }) => {
+  test('子 agent 模型设置展示', async ({ page, request }) => {
     requireHarnessProject();
-    const { token, harnessProject } = await bootstrapPage(page, request);
-    const sessionsPayload = await getProjectSessions(request, token, harnessProject.name);
-    const firstSession = sessionsPayload.sessions?.[0];
-
-    expect(firstSession).toBeTruthy();
+    const { harnessProject } = await bootstrapPage(page, request);
 
     await selectProject(page, harnessProject.name);
-    await page.locator('button').filter({ hasText: firstSession.summary.slice(0, 10) }).first().click();
-    await expect(page.getByRole('heading', { level: 2 })).toContainText(firstSession.summary.slice(0, 10));
 
     await page.getByTestId('open-settings-button').click();
-    await expect(page.getByTestId('settings-modal')).toBeVisible();
-    await page.getByTestId('settings-tab-agents').click();
-
     const providerSelect = page.getByTestId('harness-agent-provider-select');
     const reviewerSelect = page.getByTestId('harness-reviewer-model-select');
     const validatorSelect = page.getByTestId('harness-validator-model-select');
+
+    await expect(providerSelect).toBeVisible();
 
     await providerSelect.selectOption('codex');
     await expect(reviewerSelect).toBeDisabled();

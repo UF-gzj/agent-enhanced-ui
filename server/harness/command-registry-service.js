@@ -2,10 +2,11 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { parseFrontmatter } from '../utils/frontmatter.js';
 import {
+  formatClaudeCommandName,
   getAllowedNextStages,
+  getPreferredCommandNameForStage,
   getStageDefinition,
   inferStageFromCommandName,
-  normalizeCommandName,
 } from './stage-state-machine.js';
 
 async function scanCommandFiles(dir, baseDir) {
@@ -32,7 +33,7 @@ async function scanCommandFiles(dir, baseDir) {
 
 function inferCommandNameFromPath(commandsRoot, filePath) {
   const relativePath = path.relative(commandsRoot, filePath).replace(/\\/g, '/').replace(/\.md$/i, '');
-  return normalizeCommandName(`/${relativePath}`);
+  return formatClaudeCommandName(`/${relativePath}`);
 }
 
 function buildCommandArtifacts(stage) {
@@ -48,9 +49,10 @@ export async function listHarnessCommands(projectPath) {
       const raw = await fs.readFile(filePath, 'utf8');
       const { data: metadata, content } = parseFrontmatter(raw);
       const name = inferCommandNameFromPath(commandsRoot, filePath);
-      const canonicalName = normalizeCommandName(metadata.alias_for || name);
-      const type = metadata.alias_for ? 'alias' : 'canonical';
-      const stage = inferStageFromCommandName(canonicalName);
+      const stage = inferStageFromCommandName(name);
+      const canonicalName =
+        getPreferredCommandNameForStage(stage) || formatClaudeCommandName(metadata.alias_for || name);
+      const type = name === canonicalName ? 'canonical' : 'alias';
       const definition = getStageDefinition(stage);
       const firstContentLine = content.trim().split('\n').find(Boolean) || '';
       const description =
@@ -92,5 +94,5 @@ export async function listHarnessCommands(projectPath) {
     return bucket;
   }, []);
 
-  return dedupedCommands.sort((a, b) => a.name.localeCompare(b.name));
+  return dedupedCommands.sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
 }

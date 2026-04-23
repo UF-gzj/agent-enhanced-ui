@@ -23,6 +23,8 @@ interface UseChatSessionStateArgs {
   autoScrollToBottom?: boolean;
   externalMessageUpdate?: number;
   processingSessions?: Set<string>;
+  onSessionInactive?: (sessionId?: string | null) => void;
+  onSessionNotProcessing?: (sessionId?: string | null) => void;
   resetStreamingState: () => void;
   pendingViewSessionRef: MutableRefObject<PendingViewSession | null>;
   sessionStore: SessionStore;
@@ -31,6 +33,82 @@ interface UseChatSessionStateArgs {
 interface ScrollRestoreState {
   height: number;
   top: number;
+}
+
+function toTimestampValue(value: string | number | Date | undefined): number {
+  if (!value) {
+    return Number.NaN;
+  }
+
+  const timestamp = value instanceof Date
+    ? value.getTime()
+    : typeof value === 'number'
+      ? value
+      : new Date(value).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function hasMatchingPersistedUserMessage(
+  storeMessages: NormalizedMessage[],
+  pendingUserMessage: ChatMessage,
+): boolean {
+  if (pendingUserMessage.type !== 'user') {
+    return false;
+  }
+
+  const pendingContent = (pendingUserMessage.content || '').trim();
+  if (!pendingContent) {
+    return false;
+  }
+
+  const pendingTimestamp = toTimestampValue(pendingUserMessage.timestamp);
+
+  return storeMessages.some((message) => {
+    if (message.kind !== 'text' || message.role !== 'user') {
+      return false;
+    }
+
+    if ((message.content || '').trim() !== pendingContent) {
+      return false;
+    }
+
+    if (!Number.isFinite(pendingTimestamp)) {
+      return true;
+    }
+
+    const messageTimestamp = toTimestampValue(message.timestamp);
+    if (!Number.isFinite(messageTimestamp)) {
+      return false;
+    }
+
+    return Math.abs(messageTimestamp - pendingTimestamp) <= 30_000;
+  });
+}
+
+function insertPendingMessage(
+  messages: ChatMessage[],
+  pendingUserMessage: ChatMessage,
+): ChatMessage[] {
+  const pendingTimestamp = toTimestampValue(pendingUserMessage.timestamp);
+  if (!Number.isFinite(pendingTimestamp) || messages.length === 0) {
+    return [...messages, pendingUserMessage];
+  }
+
+  const insertionIndex = messages.findIndex((message) => {
+    const messageTimestamp = toTimestampValue(message.timestamp);
+    return Number.isFinite(messageTimestamp) && messageTimestamp > pendingTimestamp;
+  });
+
+  if (insertionIndex === -1) {
+    return [...messages, pendingUserMessage];
+  }
+
+  return [
+    ...messages.slice(0, insertionIndex),
+    pendingUserMessage,
+    ...messages.slice(insertionIndex),
+  ];
 }
 
 /* ------------------------------------------------------------------ */
@@ -96,6 +174,8 @@ export function useChatSessionState({
   autoScrollToBottom,
   externalMessageUpdate,
   processingSessions,
+  onSessionInactive,
+  onSessionNotProcessing,
   resetStreamingState,
   pendingViewSessionRef,
   sessionStore,
@@ -109,6 +189,7 @@ export function useChatSessionState({
   const [canAbortSession, setCanAbortSession] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
+  const [clearedSessionId, setClearedSessionId] = useState<string | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [claudeStatus, setClaudeStatus] = useState<{ text: string; tokens: number; can_interrupt: boolean } | null>(null);
   const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
@@ -140,44 +221,117 @@ export function useChatSessionState({
 
   const activeSessionId = selectedSession?.id || currentSessionId || null;
   const [pendingUserMessage, setPendingUserMessage] = useState<ChatMessage | null>(null);
-
-  // Tell the store which session we're viewing so it only re-renders for this one
-  const prevActiveForStoreRef = useRef<string | null>(null);
-  if (activeSessionId !== prevActiveForStoreRef.current) {
-    prevActiveForStoreRef.current = activeSessionId;
-    sessionStore.setActiveSession(activeSessionId);
-  }
-
-  // When a real session ID arrives and we have a pending user message, flush it to the store
-  const prevActiveSessionRef = useRef<string | null>(null);
-  if (activeSessionId && activeSessionId !== prevActiveSessionRef.current && pendingUserMessage) {
-    const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
-    const normalized = chatMessageToNormalized(pendingUserMessage, activeSessionId, prov);
-    if (normalized) {
-      sessionStore.appendRealtime(activeSessionId, normalized);
-    }
-    setPendingUserMessage(null);
-  }
-  prevActiveSessionRef.current = activeSessionId;
-
   const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : [];
 
-  // Reset viewHiddenCount when store messages change
-  const prevStoreLenRef = useRef(0);
-  if (storeMessages.length !== prevStoreLenRef.current) {
-    prevStoreLenRef.current = storeMessages.length;
-    if (viewHiddenCount > 0) setViewHiddenCount(0);
-  }
+  useEffect(() => {
+    sessionStore.setActiveSession(activeSessionId);
+  }, [activeSessionId, sessionStore]);
+
+  useEffect(() => {
+    if (!pendingUserMessage) {
+      return;
+    }
+
+    if (hasMatchingPersistedUserMessage(storeMessages, pendingUserMessage)) {
+      setPendingUserMessage(null);
+    }
+  }, [pendingUserMessage, storeMessages]);
+
+  useEffect(() => {
+    if (viewHiddenCount > 0) {
+      setViewHiddenCount(0);
+    }
+  }, [storeMessages.length, viewHiddenCount]);
 
   const chatMessages = useMemo(() => {
     const all = normalizedToChatMessages(storeMessages);
-    // Show pending user message when no session data exists yet (new session, pre-backend-response)
-    if (pendingUserMessage && all.length === 0) {
-      return [pendingUserMessage];
+
+    if (
+      pendingUserMessage &&
+      !hasMatchingPersistedUserMessage(storeMessages, pendingUserMessage)
+    ) {
+      return insertPendingMessage(all, pendingUserMessage);
     }
+
     if (viewHiddenCount > 0 && viewHiddenCount < all.length) return all.slice(0, -viewHiddenCount);
     return all;
   }, [storeMessages, viewHiddenCount, pendingUserMessage]);
+
+  const hasAssistantReplyForCurrentTurn = useMemo(() => {
+    if (storeMessages.length === 0) {
+      return false;
+    }
+
+    let latestUserTimestamp = Number.NaN;
+    let latestAssistantTextTimestamp = Number.NaN;
+
+    for (const message of storeMessages) {
+      const timestamp = new Date(message.timestamp).getTime();
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+
+      if (message.kind === 'text' && message.role === 'user' && timestamp > latestUserTimestamp) {
+        latestUserTimestamp = timestamp;
+      }
+
+      if (message.kind === 'text' && message.role === 'assistant' && timestamp > latestAssistantTextTimestamp) {
+        latestAssistantTextTimestamp = timestamp;
+      }
+    }
+
+    return (
+      Number.isFinite(latestUserTimestamp) &&
+      Number.isFinite(latestAssistantTextTimestamp) &&
+      latestAssistantTextTimestamp >= latestUserTimestamp
+    );
+  }, [storeMessages]);
+
+  useEffect(() => {
+    if (!isLoading || storeMessages.length === 0) {
+      return;
+    }
+
+    let latestUserTimestamp = Number.NaN;
+    let latestAssistantTextTimestamp = Number.NaN;
+
+    for (const message of storeMessages) {
+      const timestamp = new Date(message.timestamp).getTime();
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+
+      if (message.kind === 'text' && message.role === 'user' && timestamp > latestUserTimestamp) {
+        latestUserTimestamp = timestamp;
+      }
+
+      if (message.kind === 'text' && message.role === 'assistant' && timestamp > latestAssistantTextTimestamp) {
+        latestAssistantTextTimestamp = timestamp;
+      }
+    }
+
+    if (
+      Number.isFinite(latestUserTimestamp) &&
+      Number.isFinite(latestAssistantTextTimestamp) &&
+      latestAssistantTextTimestamp >= latestUserTimestamp
+    ) {
+      setIsLoading(false);
+      setCanAbortSession(false);
+      setClaudeStatus(null);
+      onSessionInactive?.(activeSessionId);
+      onSessionNotProcessing?.(activeSessionId);
+    }
+  }, [
+    activeSessionId,
+    hasAssistantReplyForCurrentTurn,
+    isLoading,
+    onSessionInactive,
+    onSessionNotProcessing,
+    setCanAbortSession,
+    setClaudeStatus,
+    setIsLoading,
+    storeMessages,
+  ]);
 
   /* ---------------------------------------------------------------- */
   /*  addMessage / clearMessages / rewindMessages                     */
@@ -199,6 +353,28 @@ export function useChatSessionState({
   const clearMessages = useCallback(() => {
     if (!activeSessionId) return;
     sessionStore.clearRealtime(activeSessionId);
+  }, [activeSessionId, sessionStore]);
+
+  const resetSessionView = useCallback(() => {
+    if (!activeSessionId) {
+      setPendingUserMessage(null);
+      setTokenBudget(null);
+      return;
+    }
+
+    sessionStore.resetSession(activeSessionId);
+    setClearedSessionId(activeSessionId);
+    setPendingUserMessage(null);
+    setTokenBudget(null);
+    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+    setHasMoreMessages(false);
+    setTotalMessages(0);
+    setAllMessagesLoaded(false);
+    allMessagesLoadedRef.current = false;
+    setIsLoadingAllMessages(false);
+    setLoadAllJustFinished(false);
+    setShowLoadAllOverlay(false);
+    setViewHiddenCount(0);
   }, [activeSessionId, sessionStore]);
 
   const rewindMessages = useCallback((count: number) => setViewHiddenCount(count), []);
@@ -324,8 +500,22 @@ export function useChatSessionState({
       return;
     }
 
+    if (clearedSessionId && selectedSession.id !== clearedSessionId) {
+      setClearedSessionId(null);
+    }
+
     const provider = (selectedSession.__provider || localStorage.getItem('selected-provider') as Provider) || 'claude';
     const sessionKey = `${selectedSession.id}:${selectedProject.name}:${provider}`;
+
+    if (selectedSession.id === clearedSessionId) {
+      setCurrentSessionId(selectedSession.id);
+      setIsLoadingSessionMessages(false);
+      setHasMoreMessages(false);
+      setTotalMessages(0);
+      setTokenBudget(null);
+      lastLoadedSessionKeyRef.current = sessionKey;
+      return;
+    }
 
     // Skip if already loaded and fresh
     if (lastLoadedSessionKeyRef.current === sessionKey && sessionStore.has(selectedSession.id) && !sessionStore.isStale(selectedSession.id)) {
@@ -390,6 +580,7 @@ export function useChatSessionState({
       setIsLoadingSessionMessages(false);
     });
   }, [
+    clearedSessionId,
     pendingViewSessionRef,
     resetStreamingState,
     selectedProject,
@@ -402,6 +593,7 @@ export function useChatSessionState({
   // External message update (e.g. WebSocket reconnect, background refresh)
   useEffect(() => {
     if (!externalMessageUpdate || !selectedSession || !selectedProject) return;
+    if (selectedSession.id === clearedSessionId) return;
 
     const reloadExternalMessages = async () => {
       try {
@@ -427,6 +619,7 @@ export function useChatSessionState({
     reloadExternalMessages();
   }, [
     autoScrollToBottom,
+    clearedSessionId,
     externalMessageUpdate,
     isNearBottom,
     scrollToBottom,
@@ -545,6 +738,10 @@ export function useChatSessionState({
       setTokenBudget(null);
       return;
     }
+    if (selectedSession.id === clearedSessionId) {
+      setTokenBudget(null);
+      return;
+    }
     const sessionProvider = selectedSession.__provider || 'claude';
     if (sessionProvider !== 'claude') return;
 
@@ -562,7 +759,7 @@ export function useChatSessionState({
       }
     };
     fetchInitialTokenUsage();
-  }, [selectedProject, selectedSession?.id, selectedSession?.__provider]);
+  }, [clearedSessionId, selectedProject, selectedSession?.id, selectedSession?.__provider]);
 
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;
@@ -576,13 +773,13 @@ export function useChatSessionState({
     }
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!scrollContainerRef.current || chatMessages.length === 0) return;
     if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingScrollRestoreRef.current) return;
     if (searchScrollActiveRef.current) return;
 
     if (autoScrollToBottom) {
-      if (!isUserScrolledUp) setTimeout(() => scrollToBottom(), 50);
+      if (!isUserScrolledUp) scrollToBottom();
       return;
     }
 
@@ -604,12 +801,20 @@ export function useChatSessionState({
   useEffect(() => {
     const activeViewSessionId = selectedSession?.id || currentSessionId;
     if (!activeViewSessionId || !processingSessions) return;
+    if (activeViewSessionId === clearedSessionId) return;
     const shouldBeProcessing = processingSessions.has(activeViewSessionId);
-    if (shouldBeProcessing && !isLoading) {
+    if (shouldBeProcessing && !isLoading && !hasAssistantReplyForCurrentTurn) {
       setIsLoading(true);
       setCanAbortSession(true);
     }
-  }, [currentSessionId, isLoading, processingSessions, selectedSession?.id]);
+  }, [
+    clearedSessionId,
+    currentSessionId,
+    hasAssistantReplyForCurrentTurn,
+    isLoading,
+    processingSessions,
+    selectedSession?.id,
+  ]);
 
   // "Load all" overlay
   const prevLoadingRef = useRef(false);
@@ -700,11 +905,13 @@ export function useChatSessionState({
     chatMessages,
     addMessage,
     clearMessages,
+    resetSessionView,
     rewindMessages,
     isLoading,
     setIsLoading,
     currentSessionId,
     setCurrentSessionId,
+    clearedSessionId,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
     hasMoreMessages,

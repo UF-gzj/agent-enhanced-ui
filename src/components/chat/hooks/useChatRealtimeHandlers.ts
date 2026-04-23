@@ -46,6 +46,29 @@ type LatestChatMessage = {
   [key: string]: any;
 };
 
+function getAbortLikeErrorText(message: LatestChatMessage): string {
+  if (typeof message.content === 'string') return message.content;
+  if (typeof message.error === 'string') return message.error;
+  if (typeof message.message === 'string') return message.message;
+  if (typeof message.text === 'string') return message.text;
+  return '';
+}
+
+function isAbortLikeErrorMessage(message: LatestChatMessage): boolean {
+  const normalized = getAbortLikeErrorText(message).toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    normalized.includes('ede_diagnostic') ||
+    normalized.includes('result_type=user') ||
+    normalized.includes('stop_reason=null') ||
+    normalized.includes('request interrupted by user') ||
+    normalized.includes('interrupted by user') ||
+    normalized.includes('cancelled') ||
+    normalized.includes('canceled')
+  );
+}
+
 interface UseChatRealtimeHandlersArgs {
   latestMessage: LatestChatMessage | null;
   provider: LLMProvider;
@@ -217,13 +240,26 @@ export function useChatRealtimeHandlers({
       return;
     }
 
+    const isAbortLikeError = msg.kind === 'error' && isAbortLikeErrorMessage(msg);
+
     // --- All other messages: route to store ---
-    if (sid) {
+    if (sid && !isAbortLikeError) {
       sessionStore.appendRealtime(sid, msg as NormalizedMessage);
     }
 
     // --- UI side effects for specific kinds ---
     switch (msg.kind) {
+      case 'text': {
+        if (msg.role === 'assistant') {
+          setIsLoading(false);
+          setCanAbortSession(false);
+          setClaudeStatus(null);
+          onSessionInactive?.(sid);
+          onSessionNotProcessing?.(sid);
+        }
+        break;
+      }
+
       case 'session_created': {
         const newSessionId = msg.newSessionId;
         if (!newSessionId) break;
@@ -265,9 +301,17 @@ export function useChatRealtimeHandlers({
 
         // Handle aborted case
         if (msg.aborted) {
-          // Abort was requested — the complete event confirms it
-          // No special UI action needed beyond clearing loading state above
-          // The backend already sent any abort-related messages
+          if (sid) {
+            sessionStore.appendRealtime(sid, {
+              id: `task_notification_abort_${Date.now()}`,
+              sessionId: sid,
+              timestamp: new Date().toISOString(),
+              provider,
+              kind: 'task_notification',
+              status: 'aborted',
+              summary: '已停止本次回复',
+            });
+          }
           break;
         }
 

@@ -23,11 +23,11 @@ import type {
 import type {
   HarnessGateState,
   HarnessTaskSummaryState,
+  HarnessWorkflowScenario,
   Project,
   ProjectSession,
   LLMProvider,
 } from '../../../types/app';
-import { escapeRegExp } from '../utils/chatFormatting';
 import { useFileMentions } from './useFileMentions';
 import { normalizeSlashCommandsResponse, type SlashCommand, useSlashCommands } from './useSlashCommands';
 
@@ -40,6 +40,7 @@ interface UseChatComposerStateArgs {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
+  clearedSessionId: string | null;
   provider: LLMProvider;
   permissionMode: PermissionMode | string;
   cyclePermissionMode: () => void;
@@ -61,6 +62,7 @@ interface UseChatComposerStateArgs {
   scrollToBottom: () => void;
   addMessage: (msg: ChatMessage) => void;
   clearMessages: () => void;
+  resetSessionView: () => void;
   rewindMessages: (count: number) => void;
   setIsLoading: (loading: boolean) => void;
   setCanAbortSession: (canAbort: boolean) => void;
@@ -89,9 +91,38 @@ type HarnessProjectCapabilityResponse = {
   reason?: string | null;
 };
 
+type ClaudeSubagentConfigResponse = {
+  provider: 'claude';
+  supportsSubagentModelOverride: boolean;
+  reviewerMode: 'inherit' | 'override' | 'unsupported';
+  reviewerModel?: string;
+  validatorMode: 'inherit' | 'override' | 'unsupported';
+  validatorModel?: string;
+};
+
+type HarnessLaneRunResponse = {
+  success: true;
+  task: {
+    taskId?: string | null;
+    currentStage?: string | null;
+    taskSummaryState?: HarnessTaskSummaryState | null;
+    primeState?: 'unprimed' | 'primed' | 'stale' | null;
+    activeGate?: HarnessGateState | null;
+  };
+  lane: 'review' | 'validation';
+  result: {
+    status: 'passed' | 'failed';
+    summary: string;
+    blockers: string[];
+  };
+};
+
 type ConversationMode = 'chat' | 'harness';
 
 const getConversationModeStorageKey = (projectName: string) => `conversation_mode_${projectName}`;
+const getHarnessScenarioStorageKey = (projectName: string) => `harness_scenario_${projectName}`;
+const DEFAULT_HARNESS_SCENARIO: HarnessWorkflowScenario = 'feature';
+const HARNESS_CURRENT_TASK_RESET_EVENT = 'harness-current-task-reset';
 
 const getHarnessAvailabilityMessage = (
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -111,6 +142,256 @@ const getHarnessAvailabilityMessage = (
 
 const createFakeSubmitEvent = () => {
   return { preventDefault: () => undefined } as unknown as FormEvent<HTMLFormElement>;
+};
+
+const FALLBACK_HARNESS_COMMANDS = new Set([
+  '/prim',
+  '/pln',
+  '/exec',
+  '/iter',
+  '/rca',
+  '/fix',
+  '/revu',
+  '/vald',
+  '/cmit',
+  '/commit',
+  '/core:prime',
+  '/core:init-project',
+  '/core:refresh-project-context',
+  '/core:backend-review-plan',
+  '/core:plan',
+  '/core:execute',
+  '/core:iterate',
+  '/bugfix:rca',
+  '/bugfix:implement-fix',
+  '/validation:validate',
+  '/validation:review',
+  '/validation:execution-report',
+  '/validation:system-review',
+  '/core/prime',
+  '/core/init-project',
+  '/core/refresh-project-context',
+  '/core/backend-review-plan',
+  '/core/plan',
+  '/core/execute',
+  '/core/iterate',
+  '/bugfix/rca',
+  '/bugfix/implement-fix',
+  '/validation/validate',
+  '/validation/review',
+  '/validation/execution-report',
+  '/validation/system-review',
+]);
+
+const normalizeHarnessCommandName = (commandName: string) =>
+  (commandName.startsWith('/') ? commandName : `/${commandName}`).replace(/:/g, '/').toLowerCase();
+
+const isFallbackHarnessCommand = (commandName: string) =>
+  FALLBACK_HARNESS_COMMANDS.has(normalizeHarnessCommandName(commandName));
+
+const HARNESS_COMMAND_STAGE_MAP = new Map([
+  ['/core:prime', 'prim'],
+  ['/prim', 'prim'],
+  ['/core/prime', 'prim'],
+  ['/core:init-project', 'pinit'],
+  ['/pinit', 'pinit'],
+  ['/core/init-project', 'pinit'],
+  ['/core:refresh-project-context', 'refr'],
+  ['/refr', 'refr'],
+  ['/core/refresh-project-context', 'refr'],
+  ['/core:backend-review-plan', 'bref'],
+  ['/bref', 'bref'],
+  ['/core/backend-review-plan', 'bref'],
+  ['/core:plan', 'pln'],
+  ['/pln', 'pln'],
+  ['/core/plan', 'pln'],
+  ['/core:execute', 'exec'],
+  ['/exec', 'exec'],
+  ['/core/execute', 'exec'],
+  ['/core:iterate', 'iter'],
+  ['/iter', 'iter'],
+  ['/core/iterate', 'iter'],
+  ['/bugfix:rca', 'rca'],
+  ['/rca', 'rca'],
+  ['/bugfix/rca', 'rca'],
+  ['/bugfix:implement-fix', 'fix'],
+  ['/fix', 'fix'],
+  ['/bugfix/implement-fix', 'fix'],
+  ['/validation:review', 'revu'],
+  ['/revu', 'revu'],
+  ['/validation/review', 'revu'],
+  ['/validation:validate', 'vald'],
+  ['/vald', 'vald'],
+  ['/validation/validate', 'vald'],
+  ['/validation:execution-report', 'xrep'],
+  ['/xrep', 'xrep'],
+  ['/validation/execution-report', 'xrep'],
+  ['/validation:system-review', 'srev'],
+  ['/srev', 'srev'],
+  ['/validation/system-review', 'srev'],
+  ['/cmit', 'cmit'],
+  ['/commit', 'cmit'],
+]);
+
+const HARNESS_PRIMARY_COMMANDS = new Map<string, string>([
+  ['prim', '/core:prime'],
+  ['pinit', '/core:init-project'],
+  ['refr', '/core:refresh-project-context'],
+  ['bref', '/core:backend-review-plan'],
+  ['pln', '/core:plan'],
+  ['exec', '/core:execute'],
+  ['iter', '/core:iterate'],
+  ['rca', '/bugfix:rca'],
+  ['fix', '/bugfix:implement-fix'],
+  ['revu', '/validation:review'],
+  ['vald', '/validation:validate'],
+  ['xrep', '/validation:execution-report'],
+  ['srev', '/validation:system-review'],
+  ['cmit', '/commit'],
+]);
+
+const HARNESS_SCENARIO_BRANCH_BLOCKS: Record<HarnessWorkflowScenario, string[]> = {
+  feature: ['rca', 'fix'],
+  upgrade: ['rca', 'fix'],
+  bugfix: ['pln', 'exec'],
+};
+
+const HARNESS_SCENARIO_RECOMMENDED_FLOW: Record<HarnessWorkflowScenario, string[]> = {
+  feature: [
+    '/core:prime',
+    '/core:backend-review-plan',
+    '/core:plan',
+    '/core:execute',
+    '/validation:validate',
+    '/validation:review',
+    '/validation:execution-report',
+    '/validation:system-review',
+    '/commit',
+  ],
+  upgrade: [
+    '/core:prime',
+    '/core:backend-review-plan',
+    '/core:plan',
+    '/core:execute',
+    '/validation:validate',
+    '/validation:review',
+    '/validation:execution-report',
+    '/validation:system-review',
+    '/commit',
+  ],
+  bugfix: [
+    '/core:prime',
+    '/bugfix:rca',
+    '/core:backend-review-plan',
+    '/bugfix:implement-fix',
+    '/validation:validate',
+    '/validation:review',
+    '/validation:execution-report',
+    '/validation:system-review',
+    '/commit',
+  ],
+};
+
+const HARNESS_ALLOWED_NEXT_STAGES = new Map<string | null, string[]>([
+  [null, ['prim', 'pinit', 'refr']],
+  ['prim', ['bref', 'pln', 'rca', 'refr']],
+  ['pinit', ['prim', 'refr']],
+  ['refr', ['prim', 'bref', 'pln', 'rca']],
+  ['bref', ['pln', 'exec']],
+  ['pln', ['exec', 'iter']],
+  ['exec', ['revu', 'vald', 'iter']],
+  ['rca', ['fix', 'iter']],
+  ['fix', ['revu', 'vald', 'iter']],
+  ['revu', ['gate', 'iter', 'xrep']],
+  ['vald', ['gate', 'iter', 'xrep']],
+  ['gate', ['iter', 'xrep']],
+  ['iter', ['pln', 'exec', 'fix', 'revu', 'vald']],
+  ['xrep', ['srev', 'cmit']],
+  ['srev', ['cmit']],
+  ['cmit', []],
+]);
+
+const inferHarnessStageFromCommand = (commandName: string) => {
+  const normalized = normalizeHarnessCommandName(commandName.startsWith('/') ? commandName : `/${commandName}`);
+  if (HARNESS_COMMAND_STAGE_MAP.has(normalized)) {
+    return HARNESS_COMMAND_STAGE_MAP.get(normalized) || null;
+  }
+
+  const leaf = normalized.split('/').pop() || '';
+  return HARNESS_COMMAND_STAGE_MAP.get(`/${leaf}`) || null;
+};
+
+const getAllowedHarnessStages = (currentStage: string | null) =>
+  HARNESS_ALLOWED_NEXT_STAGES.get(currentStage || null) || HARNESS_ALLOWED_NEXT_STAGES.get(null) || [];
+
+const getScenarioBlockedHarnessStages = (
+  _currentStage: string | null,
+  scenario: HarnessWorkflowScenario,
+) => {
+  return new Set(HARNESS_SCENARIO_BRANCH_BLOCKS[scenario] || []);
+};
+
+const getAllowedHarnessCommandNames = (
+  currentStage: string | null,
+  scenario: HarnessWorkflowScenario = DEFAULT_HARNESS_SCENARIO,
+) => {
+  const blockedStages = getScenarioBlockedHarnessStages(currentStage, scenario);
+  const allowedCommands = getAllowedHarnessStages(currentStage)
+    .filter((stage) => !blockedStages.has(stage))
+    .map((stage) => HARNESS_PRIMARY_COMMANDS.get(stage))
+    .filter((commandName): commandName is string => Boolean(commandName));
+
+  if (allowedCommands.length > 0) {
+    return Array.from(new Set(allowedCommands));
+  }
+
+  return Array.from(
+    new Set(
+      getAllowedHarnessStages(currentStage)
+        .map((stage) => HARNESS_PRIMARY_COMMANDS.get(stage))
+        .filter((commandName): commandName is string => Boolean(commandName)),
+    ),
+  );
+};
+
+const getHarnessStageDisplayCommand = (stage: string | null) => {
+  if (!stage) {
+    return null;
+  }
+
+  return HARNESS_PRIMARY_COMMANDS.get(stage) || stage;
+};
+
+const areStringArraysEqual = (left: string[] = [], right: string[] = []) => {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+};
+
+const areHarnessGatesEqual = (
+  left: HarnessGateState | null,
+  right: HarnessGateState | null,
+) => {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return (
+    left.reviewStatus === right.reviewStatus &&
+    left.validationStatus === right.validationStatus &&
+    left.humanDecision === right.humanDecision &&
+    areStringArraysEqual(left.blockers, right.blockers)
+  );
 };
 
 const isTemporarySessionId = (sessionId: string | null | undefined) =>
@@ -138,6 +419,7 @@ export function useChatComposerState({
   selectedProject,
   selectedSession,
   currentSessionId,
+  clearedSessionId,
   provider,
   permissionMode,
   cyclePermissionMode,
@@ -159,6 +441,7 @@ export function useChatComposerState({
   scrollToBottom,
   addMessage,
   clearMessages,
+  resetSessionView,
   rewindMessages,
   setIsLoading,
   setCanAbortSession,
@@ -185,6 +468,13 @@ export function useChatComposerState({
     }
     return 'chat';
   });
+  const [harnessScenario, setHarnessScenario] = useState<HarnessWorkflowScenario>(() => {
+    if (typeof window !== 'undefined' && selectedProject) {
+      const savedScenario = safeLocalStorage.getItem(getHarnessScenarioStorageKey(selectedProject.name));
+      return savedScenario === 'upgrade' || savedScenario === 'bugfix' ? savedScenario : DEFAULT_HARNESS_SCENARIO;
+    }
+    return DEFAULT_HARNESS_SCENARIO;
+  });
   const [harnessAvailability, setHarnessAvailability] = useState<
     'available' | 'unavailable_no_claude' | 'unavailable_project_unknown'
   >('unavailable_project_unknown');
@@ -197,17 +487,116 @@ export function useChatComposerState({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
+  const submitInFlightRef = useRef(false);
+  const programmaticSubmitContentRef = useRef<string | null>(null);
+  const programmaticClaudeModelRef = useRef<string | null>(null);
   const handleSubmitRef = useRef<
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
   const allowHarnessCommandSubmitRef = useRef(false);
+  const recommendedHarnessFlow = HARNESS_SCENARIO_RECOMMENDED_FLOW[harnessScenario];
+  const clearActiveHarnessTaskView = useCallback(() => {
+    setActiveHarnessTaskId(null);
+    setActiveHarnessStage(null);
+    setTaskSummaryState('idle');
+    setActivePrimeState('unprimed');
+    setActiveHarnessGate(null);
+  }, []);
+  const syncActiveHarnessTaskView = useCallback(
+    (nextTask: {
+      taskId?: string | null;
+      currentStage?: string | null;
+      taskSummaryState?: HarnessTaskSummaryState | null;
+      primeState?: 'unprimed' | 'primed' | 'stale' | null;
+      activeGate?: HarnessGateState | null;
+    } | null) => {
+      const nextTaskId = nextTask?.taskId || null;
+      const nextStage = nextTask?.currentStage || null;
+      const nextTaskSummaryState = nextTask?.taskSummaryState || 'idle';
+      const nextPrimeState = nextTask?.primeState || 'unprimed';
+      const nextActiveGate = nextTask?.activeGate || null;
+
+      setActiveHarnessTaskId((previous) => (previous === nextTaskId ? previous : nextTaskId));
+      setActiveHarnessStage((previous) => (previous === nextStage ? previous : nextStage));
+      setTaskSummaryState((previous) =>
+        previous === nextTaskSummaryState ? previous : nextTaskSummaryState,
+      );
+      setActivePrimeState((previous) => (previous === nextPrimeState ? previous : nextPrimeState));
+      setActiveHarnessGate((previous) =>
+        areHarnessGatesEqual(previous, nextActiveGate) ? previous : nextActiveGate,
+      );
+    },
+    [],
+  );
+
+  const getToolsSettings = useCallback(() => {
+    try {
+      const settingsKey =
+        provider === 'cursor'
+          ? 'cursor-tools-settings'
+          : provider === 'codex'
+            ? 'codex-settings'
+            : provider === 'gemini'
+              ? 'gemini-settings'
+              : 'claude-settings';
+      const savedSettings = safeLocalStorage.getItem(settingsKey);
+      if (savedSettings) {
+        return JSON.parse(savedSettings);
+      }
+    } catch (error) {
+      console.error('Error loading tools settings:', error);
+    }
+
+    return {
+      allowedTools: [],
+      disallowedTools: [],
+      skipPermissions: false,
+    };
+  }, [provider]);
 
   const handleBuiltInCommand = useCallback(
-    (result: CommandExecutionResult) => {
+    async (result: CommandExecutionResult) => {
       const { action, data } = result;
       switch (action) {
         case 'clear':
+          if (provider === 'claude') {
+            const resolvedProjectPath = selectedProject?.fullPath || selectedProject?.path || '';
+            resetSessionView();
+            setIsLoading(false);
+            setCanAbortSession(false);
+            setClaudeStatus(null);
+
+            if (
+              resolvedProjectPath &&
+              harnessAvailability === 'available' &&
+              (conversationMode === 'harness' || Boolean(activeHarnessTaskId))
+            ) {
+              try {
+                const response = await authenticatedFetch('/api/harness/projects/reset-current-task', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    projectPath: resolvedProjectPath,
+                  }),
+                });
+
+                if (response.ok && typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent(HARNESS_CURRENT_TASK_RESET_EVENT, {
+                      detail: { projectPath: resolvedProjectPath },
+                    }),
+                  );
+                }
+              } catch (error) {
+                console.warn('Failed to reset current harness task after /clear:', error);
+              }
+            }
+            break;
+          }
+
           clearMessages();
           break;
 
@@ -283,7 +672,28 @@ export function useChatComposerState({
           console.warn('Unknown built-in command action:', action);
       }
     },
-    [onFileOpen, onShowSettings, addMessage, clearMessages, rewindMessages],
+    [
+      addMessage,
+      activeHarnessTaskId,
+      claudeModel,
+      clearMessages,
+      conversationMode,
+      currentSessionId,
+      getToolsSettings,
+      harnessAvailability,
+      onFileOpen,
+      onShowSettings,
+      permissionMode,
+      provider,
+      resetSessionView,
+      rewindMessages,
+      selectedProject,
+      selectedSession?.id,
+      sendMessage,
+      setCanAbortSession,
+      setClaudeStatus,
+      setIsLoading,
+    ],
   );
 
   const recordAppMetricEvent = useCallback(
@@ -354,21 +764,13 @@ export function useChatComposerState({
     async (projectOverride?: Project | null) => {
       const project = projectOverride ?? selectedProject;
       if (!project) {
-        setActiveHarnessTaskId(null);
-        setActiveHarnessStage(null);
-        setTaskSummaryState('idle');
-        setActivePrimeState('unprimed');
-        setActiveHarnessGate(null);
+        clearActiveHarnessTaskView();
         return null;
       }
 
       const projectPath = project.fullPath || project.path || '';
       if (!projectPath) {
-        setActiveHarnessTaskId(null);
-        setActiveHarnessStage(null);
-        setTaskSummaryState('idle');
-        setActivePrimeState('unprimed');
-        setActiveHarnessGate(null);
+        clearActiveHarnessTaskView();
         return null;
       }
 
@@ -381,14 +783,100 @@ export function useChatComposerState({
 
       const result = await response.json();
       const nextTask = result?.task || null;
-      setActiveHarnessTaskId(nextTask?.taskId || result?.taskId || null);
-      setActiveHarnessStage(nextTask?.currentStage || null);
-      setTaskSummaryState(nextTask?.taskSummaryState || 'idle');
-      setActivePrimeState(nextTask?.primeState || 'unprimed');
-      setActiveHarnessGate(nextTask?.activeGate || null);
+      syncActiveHarnessTaskView(
+        nextTask
+          ? {
+              ...nextTask,
+              taskId: nextTask?.taskId || result?.taskId || null,
+            }
+          : {
+              taskId: result?.taskId || null,
+            },
+      );
       return nextTask;
     },
-    [selectedProject],
+    [clearActiveHarnessTaskView, selectedProject, syncActiveHarnessTaskView],
+  );
+
+  const isHarnessCommandVisible = useCallback(
+    (command: SlashCommand) => {
+      const requiresHarness = Boolean(command.metadata?.requiresHarness);
+      if (!requiresHarness) {
+        return true;
+      }
+
+      if (harnessAvailability !== 'available') {
+        return false;
+      }
+
+      return true;
+    },
+    [harnessAvailability],
+  );
+
+  const getHarnessStageBlockReason = useCallback(
+    (command: SlashCommand) => {
+      const stage = inferHarnessStageFromCommand(command.name);
+      if (!stage) {
+        return null;
+      }
+
+      const currentStage = activeHarnessStage || null;
+      if (currentStage === stage) {
+        return null;
+      }
+
+      const allowedStages = getAllowedHarnessStages(currentStage);
+      const recommendedCommands = getAllowedHarnessCommandNames(currentStage, harnessScenario);
+      const gateReadyForExecutionReport =
+        activeHarnessGate?.reviewStatus === 'passed' && activeHarnessGate?.validationStatus === 'passed';
+
+      if (stage === 'xrep' && !gateReadyForExecutionReport) {
+        return {
+          stage,
+          currentStage,
+          allowedStages,
+          recommendedCommands,
+          reason: 'gate-not-ready',
+        };
+      }
+
+      const scenarioBlockedStages = getScenarioBlockedHarnessStages(currentStage, harnessScenario);
+      if (scenarioBlockedStages.has(stage)) {
+        return {
+          stage,
+          currentStage,
+          allowedStages,
+          recommendedCommands,
+          reason: 'scenario-not-recommended',
+        };
+      }
+
+      if (allowedStages.includes(stage)) {
+        return null;
+      }
+
+      return {
+        stage,
+        currentStage,
+        allowedStages,
+        recommendedCommands,
+        reason: 'stage-not-allowed',
+      };
+    },
+    [activeHarnessGate, activeHarnessStage, harnessScenario],
+  );
+
+  const findMatchingSlashCommand = useCallback(
+    (commandName: string, availableCommands: SlashCommand[]) => {
+      const normalizedTarget = normalizeHarnessCommandName(commandName);
+      return (
+        availableCommands.find(
+          (command) => normalizeHarnessCommandName(command.name) === normalizedTarget,
+        ) || null
+      );
+    },
+    [],
   );
 
   const prepareHarnessTask = useCallback(
@@ -415,6 +903,7 @@ export function useChatComposerState({
           message: inputValueRef.current || command.name,
           commandName: command.name,
           commandContent,
+          mainClaudeModel: provider === 'claude' ? claudeModel : null,
         }),
       });
 
@@ -424,54 +913,144 @@ export function useChatComposerState({
       }
 
       const payload = await response.json();
-      const nextTaskId = payload?.task?.taskId || null;
-      const nextStage = payload?.task?.currentStage || null;
-      const nextTaskSummaryState = payload?.task?.taskSummaryState || 'idle';
-      const nextPrimeState = payload?.task?.primeState || 'unprimed';
-      const nextActiveGate = payload?.task?.activeGate || null;
-
-      if (nextTaskId) {
-        setActiveHarnessTaskId(nextTaskId);
-        setActiveHarnessStage(nextStage);
-        setTaskSummaryState(nextTaskSummaryState);
-        setActivePrimeState(nextPrimeState);
-        setActiveHarnessGate(nextActiveGate);
+      if (payload?.task?.taskId) {
+        syncActiveHarnessTaskView(payload.task);
       }
 
       return payload;
     },
-    [activeHarnessTaskId, currentSessionId, selectedProject, selectedSession?.id],
+    [
+      activeHarnessTaskId,
+      claudeModel,
+      currentSessionId,
+      provider,
+      selectedProject,
+      selectedSession?.id,
+      syncActiveHarnessTaskView,
+    ],
   );
 
-  const handleCustomCommand = useCallback(async (result: CommandExecutionResult, options?: { allowHarnessSubmit?: boolean }) => {
-    const { content, hasBashCommands } = result;
+  const handleCustomCommand = useCallback(async (
+    result: CommandExecutionResult,
+    options?: { allowHarnessSubmit?: boolean; userArguments?: string | null; claudeExecutionModel?: string | null },
+  ) => {
+    const { content } = result;
 
-    if (hasBashCommands) {
-      const confirmed = window.confirm(
-        'This command contains bash commands that will be executed. Do you want to proceed?',
-      );
-      if (!confirmed) {
-        addMessage({
-          type: 'assistant',
-          content: 'Command execution cancelled',
-          timestamp: Date.now(),
-        });
-        return;
-      }
-    }
-
-    const commandContent = content || '';
+    const normalizedUserArguments = options?.userArguments?.trim() || '';
+      const commandContentBase = normalizedUserArguments
+        ? `${(content || '').trim()}\n\n---\nUser task:\n${normalizedUserArguments}`
+        : content || '';
+      const commandContent = commandContentBase;
     allowHarnessCommandSubmitRef.current = Boolean(options?.allowHarnessSubmit);
-    setInput(commandContent);
-    inputValueRef.current = commandContent;
+    programmaticSubmitContentRef.current = commandContent;
+    programmaticClaudeModelRef.current = options?.claudeExecutionModel || null;
 
-    // Defer submit to next tick so the command text is reflected in UI before dispatching.
     setTimeout(() => {
       if (handleSubmitRef.current) {
         handleSubmitRef.current(createFakeSubmitEvent());
       }
     }, 0);
-  }, [addMessage]);
+      }, [addMessage]);
+
+  const runHarnessLaneSubagent = useCallback(
+    async (taskPayload: { task?: { taskId?: string | null } } | null, stage: 'revu' | 'vald') => {
+      if (!selectedProject || !taskPayload?.task?.taskId) {
+        throw new Error('Harness 子线程缺少任务上下文');
+      }
+
+      const lane = stage === 'revu' ? 'review' : 'validation';
+      const projectPath = selectedProject.fullPath || selectedProject.path || '';
+      const response = await authenticatedFetch(
+        `/api/harness/tasks/${encodeURIComponent(taskPayload.task.taskId)}/lanes/${lane}/run`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            projectPath,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.error || 'Failed to run harness lane subagent');
+      }
+
+      const payload = (await response.json()) as HarnessLaneRunResponse;
+      if (payload?.task) {
+        syncActiveHarnessTaskView(payload.task);
+      }
+
+      addMessage({
+        type: 'assistant',
+        content:
+          lane === 'review'
+            ? t('conversationMode.reviewLaneCompleted', {
+                status: payload.result.status,
+                summary: payload.result.summary || t('conversationMode.noSummary'),
+                blockers: payload.result.blockers.length
+                  ? payload.result.blockers.join(' / ')
+                  : t('conversationMode.noBlockers'),
+              })
+            : t('conversationMode.validationLaneCompleted', {
+                status: payload.result.status,
+                summary: payload.result.summary || t('conversationMode.noSummary'),
+                blockers: payload.result.blockers.length
+                  ? payload.result.blockers.join(' / ')
+                  : t('conversationMode.noBlockers'),
+              }),
+        timestamp: Date.now(),
+      });
+
+      return payload;
+    },
+    [addMessage, selectedProject, syncActiveHarnessTaskView, t],
+  );
+
+  const resolveClaudeHarnessExecutionModel = useCallback(
+    async (commandName: string) => {
+      if (provider !== 'claude') {
+        return null;
+      }
+
+      const stage = inferHarnessStageFromCommand(commandName);
+      if (!stage) {
+        return claudeModel;
+      }
+
+      if (stage !== 'revu' && stage !== 'vald') {
+        return claudeModel;
+      }
+
+      try {
+        const response = await authenticatedFetch('/api/harness/providers/claude/subagent-config');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const config = (await response.json()) as ClaudeSubagentConfigResponse;
+        if (!config?.supportsSubagentModelOverride) {
+          return claudeModel;
+        }
+
+        if (stage === 'revu') {
+          return config.reviewerMode === 'override' && config.reviewerModel && config.reviewerModel !== 'inherit'
+            ? config.reviewerModel
+            : claudeModel;
+        }
+
+        return config.validatorMode === 'override' && config.validatorModel && config.validatorModel !== 'inherit'
+          ? config.validatorModel
+          : claudeModel;
+      } catch (error) {
+        console.warn('Failed to resolve Claude harness execution model:', error);
+        return claudeModel;
+      }
+    },
+    [claudeModel, provider],
+  );
 
   const executeCommand = useCallback(
     async (command: SlashCommand, rawInput?: string) => {
@@ -480,7 +1059,6 @@ export function useChatComposerState({
       }
 
       const requiresHarness = Boolean(command.metadata?.requiresHarness);
-      const effectiveConversationMode = conversationMode;
       if (requiresHarness && harnessAvailability !== 'available') {
         showHarnessUnavailableMessage();
         void recordAppMetricEvent({
@@ -491,18 +1069,31 @@ export function useChatComposerState({
         return;
       }
 
-      if (requiresHarness && effectiveConversationMode !== 'harness') {
-        addMessage({
-          type: 'assistant',
-          content: t('conversationMode.commandRequiresHarness'),
-          timestamp: Date.now(),
-        });
-        void recordAppMetricEvent({
-          metricKey: 'M3',
-          name: 'harness_command_guided_from_chat',
-          reason: 'requires-harness-mode',
-        });
-        return;
+      if (requiresHarness) {
+        const stageBlock = getHarnessStageBlockReason(command);
+        if (stageBlock) {
+          const allowedCommands = stageBlock.recommendedCommands || getAllowedHarnessCommandNames(stageBlock.currentStage, harnessScenario);
+          const currentStageDisplay = getHarnessStageDisplayCommand(stageBlock.currentStage) || t('conversationMode.stageNotStarted');
+          const stageBlockedContent =
+            stageBlock.reason === 'scenario-not-recommended'
+              ? t('conversationMode.scenarioBlocked', {
+                  command: command.name,
+                  scene: t(`conversationMode.scenarios.${harnessScenario}`),
+                  currentStage: currentStageDisplay,
+                  commands: allowedCommands.length ? allowedCommands.join(' / ') : t('conversationMode.noAllowedCommands'),
+                })
+              : t('conversationMode.stageBlocked', {
+                  command: command.name,
+                  currentStage: currentStageDisplay,
+                  commands: allowedCommands.length ? allowedCommands.join(' / ') : t('conversationMode.noAllowedCommands'),
+                });
+          addMessage({
+            type: 'assistant',
+            content: stageBlockedContent,
+            timestamp: Date.now(),
+          });
+          return;
+        }
       }
 
       try {
@@ -515,9 +1106,10 @@ export function useChatComposerState({
         }
 
         const effectiveInput = rawInput ?? input;
-        const commandMatch = effectiveInput.match(new RegExp(`${escapeRegExp(command.name)}\\s*(.*)`));
-        const args =
-          commandMatch && commandMatch[1] ? commandMatch[1].trim().split(/\s+/) : [];
+        const normalizedInput = effectiveInput.trim();
+        const firstSpace = normalizedInput.indexOf(' ');
+        const userArguments = firstSpace > -1 ? normalizedInput.slice(firstSpace + 1).trim() : '';
+        const args = userArguments ? userArguments.split(/\s+/) : [];
 
         const context = {
           projectPath: selectedProject.fullPath || selectedProject.path,
@@ -554,14 +1146,35 @@ export function useChatComposerState({
 
         const result = (await response.json()) as CommandExecutionResult;
         if (result.type === 'builtin') {
-          handleBuiltInCommand(result);
+          await handleBuiltInCommand(result);
           setInput('');
           inputValueRef.current = '';
         } else if (result.type === 'custom') {
+          const stage = inferHarnessStageFromCommand(command.name);
+          const claudeExecutionModel =
+            requiresHarness && provider === 'claude' && stage !== 'revu' && stage !== 'vald'
+              ? await resolveClaudeHarnessExecutionModel(command.name)
+              : null;
+          let taskPayload: { task?: { taskId?: string | null } } | null = null;
           if (requiresHarness) {
-            await prepareHarnessTask(command, result.content || '');
+            taskPayload = await prepareHarnessTask(command, result.content || '');
           }
-          await handleCustomCommand(result, { allowHarnessSubmit: requiresHarness });
+          if (
+            requiresHarness &&
+            provider === 'claude' &&
+            taskPayload &&
+            (stage === 'revu' || stage === 'vald')
+          ) {
+            await runHarnessLaneSubagent(taskPayload, stage);
+            setInput('');
+            inputValueRef.current = '';
+            return;
+          }
+          await handleCustomCommand(result, {
+            allowHarnessSubmit: requiresHarness,
+            userArguments,
+            claudeExecutionModel,
+          });
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -575,19 +1188,23 @@ export function useChatComposerState({
     },
     [
       claudeModel,
-      conversationMode,
       codexModel,
       currentSessionId,
       cursorModel,
       geminiModel,
       harnessAvailability,
       harnessAvailabilityReason,
+      harnessScenario,
       handleBuiltInCommand,
       handleCustomCommand,
+      getHarnessStageBlockReason,
       input,
       provider,
       prepareHarnessTask,
+      runHarnessLaneSubagent,
+      provider,
       recordAppMetricEvent,
+      resolveClaudeHarnessExecutionModel,
       selectedProject,
       addMessage,
       selectedSession?.id,
@@ -614,7 +1231,7 @@ export function useChatComposerState({
     input,
     setInput,
     textareaRef,
-    onExecuteCommand: executeCommand,
+    commandVisibilityFilter: isHarnessCommandVisible,
   });
 
   const {
@@ -713,17 +1330,23 @@ export function useChatComposerState({
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
-    ) => {
-      event.preventDefault();
-      const currentInput = inputValueRef.current;
-      const effectiveConversationMode = conversationMode;
-      if (!currentInput.trim() || isLoading || !selectedProject) {
-        allowHarnessCommandSubmitRef.current = false;
-        return;
-      }
+      ) => {
+        event.preventDefault();
+        const currentInput = inputValueRef.current;
+        const programmaticSubmitContent = programmaticSubmitContentRef.current;
+        const effectiveConversationMode = conversationMode;
+        const isHarnessWorkflowSubmit = allowHarnessCommandSubmitRef.current;
+        if (!currentInput.trim() || isLoading || submitInFlightRef.current || !selectedProject) {
+          allowHarnessCommandSubmitRef.current = false;
+          programmaticSubmitContentRef.current = null;
+          programmaticClaudeModelRef.current = null;
+          return;
+        }
 
       if (effectiveConversationMode === 'harness' && harnessAvailability !== 'available') {
         allowHarnessCommandSubmitRef.current = false;
+        programmaticSubmitContentRef.current = null;
+        programmaticClaudeModelRef.current = null;
         showHarnessUnavailableMessage();
         void recordAppMetricEvent({
           metricKey: 'M12A',
@@ -733,61 +1356,52 @@ export function useChatComposerState({
         return;
       }
 
-      // Intercept slash commands: if input starts with /commandName, execute as command with args
-      const trimmedInput = currentInput.trim();
-      if (trimmedInput.startsWith('/')) {
-        const firstSpace = trimmedInput.indexOf(' ');
-        const commandName = firstSpace > 0 ? trimmedInput.slice(0, firstSpace) : trimmedInput;
-        let matchedCommand = slashCommands.find((cmd: SlashCommand) => cmd.name === commandName);
+        // Intercept slash commands: if input starts with /commandName, execute as command with args
+        const trimmedInput = currentInput.trim();
+        if (!programmaticSubmitContent && trimmedInput.startsWith('/')) {
+          const firstSpace = trimmedInput.indexOf(' ');
+          const commandName = firstSpace > 0 ? trimmedInput.slice(0, firstSpace) : trimmedInput;
+          let matchedCommand = findMatchingSlashCommand(commandName, slashCommands);
 
         if (!matchedCommand) {
           try {
             const commands = await loadSlashCommandsForProject();
-            matchedCommand = commands.find((cmd: SlashCommand) => cmd.name === commandName);
+            matchedCommand = findMatchingSlashCommand(commandName, commands);
           } catch (error) {
             console.warn('Failed to lazily load slash commands:', error);
           }
         }
 
+        if (!matchedCommand && harnessAvailability !== 'available' && isFallbackHarnessCommand(commandName)) {
+          allowHarnessCommandSubmitRef.current = false;
+          programmaticSubmitContentRef.current = null;
+          programmaticClaudeModelRef.current = null;
+          showHarnessUnavailableMessage();
+          void recordAppMetricEvent({
+            metricKey: 'M12A',
+            name: 'force_harness_blocked_no_claude',
+            reason: harnessAvailabilityReason || harnessAvailability,
+          });
+          return;
+        }
+
         if (matchedCommand) {
           await executeCommand(matchedCommand, trimmedInput);
-          setInput('');
-          inputValueRef.current = '';
-          setAttachedImages([]);
-          setUploadingImages(new Map());
-          setImageErrors(new Map());
-          resetCommandMenuState();
-          setIsTextareaExpanded(false);
-          if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-          }
           return;
         }
       }
 
-      if (effectiveConversationMode === 'harness' && !allowHarnessCommandSubmitRef.current) {
-        allowHarnessCommandSubmitRef.current = false;
-          addMessage({
-            type: 'assistant',
-            content: t('conversationMode.freeformBlocked'),
-            timestamp: Date.now(),
-          });
-        void recordAppMetricEvent({
-          metricKey: 'M3',
-          name: 'message_routed_to_chat_from_harness_freeform_blocked',
-          reason: 'phase-1-slash-command-only',
-        });
-        return;
-      }
+        let messageContent = programmaticSubmitContent || currentInput;
+        const claudeExecutionModel = programmaticClaudeModelRef.current || claudeModel;
+        const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
+        if (selectedThinkingMode && selectedThinkingMode.prefix) {
+          messageContent = `${selectedThinkingMode.prefix}: ${messageContent}`;
+        }
 
-      let messageContent = currentInput;
-      const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
-      if (selectedThinkingMode && selectedThinkingMode.prefix) {
-        messageContent = `${selectedThinkingMode.prefix}: ${currentInput}`;
-      }
+        submitInFlightRef.current = true;
 
-      let uploadedImages: unknown[] = [];
-      if (attachedImages.length > 0) {
+        let uploadedImages: unknown[] = [];
+        if (attachedImages.length > 0) {
         const formData = new FormData();
         attachedImages.forEach((file) => {
           formData.append('images', file);
@@ -806,21 +1420,30 @@ export function useChatComposerState({
 
           const result = await response.json();
           uploadedImages = result.images;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          console.error('Image upload failed:', error);
-          addMessage({
-            type: 'error',
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error('Image upload failed:', error);
+            addMessage({
+              type: 'error',
             content: `Failed to upload images: ${message}`,
-            timestamp: new Date(),
-          });
-          allowHarnessCommandSubmitRef.current = false;
-          return;
+              timestamp: new Date(),
+            });
+            submitInFlightRef.current = false;
+            allowHarnessCommandSubmitRef.current = false;
+            programmaticSubmitContentRef.current = null;
+            programmaticClaudeModelRef.current = null;
+            return;
+          }
         }
-      }
 
-      const effectiveSessionId =
-        currentSessionId || selectedSession?.id || sessionStorage.getItem('cursorSessionId');
+      const shouldStartFreshClaudeSession =
+        provider === 'claude' &&
+        Boolean(clearedSessionId) &&
+        (clearedSessionId === currentSessionId || clearedSessionId === selectedSession?.id);
+
+      const effectiveSessionId = shouldStartFreshClaudeSession
+        ? null
+        : currentSessionId || selectedSession?.id || sessionStorage.getItem('cursorSessionId');
       const sessionToActivate = effectiveSessionId || `new-session-${Date.now()}`;
 
       const userMessage: ChatMessage = {
@@ -842,7 +1465,7 @@ export function useChatComposerState({
       setIsUserScrolledUp(false);
       setTimeout(() => scrollToBottom(), 100);
 
-      if (!effectiveSessionId && !selectedSession?.id) {
+      if (!effectiveSessionId) {
         if (typeof window !== 'undefined') {
           // Reset stale pending IDs from previous interrupted runs before creating a new one.
           sessionStorage.removeItem('pendingSessionId');
@@ -853,31 +1476,6 @@ export function useChatComposerState({
       if (effectiveSessionId && !isTemporarySessionId(effectiveSessionId)) {
         onSessionProcessing?.(effectiveSessionId);
       }
-
-      const getToolsSettings = () => {
-        try {
-          const settingsKey =
-            provider === 'cursor'
-              ? 'cursor-tools-settings'
-              : provider === 'codex'
-                ? 'codex-settings'
-                : provider === 'gemini'
-                  ? 'gemini-settings'
-                  : 'claude-settings';
-          const savedSettings = safeLocalStorage.getItem(settingsKey);
-          if (savedSettings) {
-            return JSON.parse(savedSettings);
-          }
-        } catch (error) {
-          console.error('Error loading tools settings:', error);
-        }
-
-        return {
-          allowedTools: [],
-          disallowedTools: [],
-          skipPermissions: false,
-        };
-      };
 
       const toolsSettings = getToolsSettings();
       const resolvedProjectPath = selectedProject.fullPath || selectedProject.path || '';
@@ -941,7 +1539,7 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             toolsSettings,
             permissionMode,
-            model: claudeModel,
+            model: claudeExecutionModel,
             sessionSummary,
             images: uploadedImages,
           },
@@ -963,10 +1561,16 @@ export function useChatComposerState({
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
       allowHarnessCommandSubmitRef.current = false;
+      programmaticSubmitContentRef.current = null;
+      programmaticClaudeModelRef.current = null;
       void recordAppMetricEvent({
         metricKey: 'M3',
-        name: effectiveConversationMode === 'harness' ? 'message_routed_to_harness' : 'message_routed_to_chat',
-        reason: effectiveConversationMode === 'harness' ? 'harness-command-submit' : 'default-chat-path',
+        name: isHarnessWorkflowSubmit ? 'message_routed_to_harness' : 'message_routed_to_chat',
+        reason: isHarnessWorkflowSubmit
+          ? 'harness-command-submit'
+          : effectiveConversationMode === 'harness'
+            ? 'harness-freeform-chat'
+            : 'default-chat-path',
       });
     },
     [
@@ -982,6 +1586,7 @@ export function useChatComposerState({
       harnessAvailability,
       harnessAvailabilityReason,
       isLoading,
+      findMatchingSlashCommand,
       onSessionActive,
       onSessionProcessing,
       pendingViewSessionRef,
@@ -1000,13 +1605,19 @@ export function useChatComposerState({
       setIsUserScrolledUp,
       showHarnessUnavailableMessage,
       slashCommands,
+      t,
       thinkingMode,
+      clearedSessionId,
     ],
   );
 
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
   }, [handleSubmit]);
+
+  useEffect(() => {
+    submitInFlightRef.current = isLoading;
+  }, [isLoading]);
 
   useEffect(() => {
     inputValueRef.current = input;
@@ -1038,23 +1649,20 @@ export function useChatComposerState({
   useEffect(() => {
     if (!selectedProject) {
       setConversationMode('chat');
+      setHarnessScenario(DEFAULT_HARNESS_SCENARIO);
       setHarnessAvailability('unavailable_project_unknown');
       setHarnessAvailabilityReason(null);
-      setActiveHarnessTaskId(null);
-      setActiveHarnessStage(null);
-      setTaskSummaryState('idle');
-      setActivePrimeState('unprimed');
-      setActiveHarnessGate(null);
+      clearActiveHarnessTaskView();
       return;
     }
 
     const savedMode = safeLocalStorage.getItem(getConversationModeStorageKey(selectedProject.name));
     setConversationMode(savedMode === 'harness' ? 'harness' : 'chat');
-    setActiveHarnessTaskId(null);
-    setActiveHarnessStage(null);
-    setTaskSummaryState('idle');
-    setActivePrimeState('unprimed');
-    setActiveHarnessGate(null);
+    const savedScenario = safeLocalStorage.getItem(getHarnessScenarioStorageKey(selectedProject.name));
+    setHarnessScenario(
+      savedScenario === 'upgrade' || savedScenario === 'bugfix' ? savedScenario : DEFAULT_HARNESS_SCENARIO,
+    );
+    clearActiveHarnessTaskView();
 
     let isCancelled = false;
 
@@ -1079,11 +1687,10 @@ export function useChatComposerState({
 
         if (nextAvailability !== 'available') {
           setConversationMode('chat');
-          setActiveHarnessTaskId(null);
-          setActiveHarnessStage(null);
-          setTaskSummaryState('idle');
-          setActivePrimeState('unprimed');
-          setActiveHarnessGate(null);
+          setHarnessScenario(
+            savedScenario === 'upgrade' || savedScenario === 'bugfix' ? savedScenario : DEFAULT_HARNESS_SCENARIO,
+          );
+          clearActiveHarnessTaskView();
           safeLocalStorage.setItem(getConversationModeStorageKey(selectedProject.name), 'chat');
           return;
         }
@@ -1095,11 +1702,7 @@ export function useChatComposerState({
         }
         setHarnessAvailability('unavailable_project_unknown');
         setHarnessAvailabilityReason(error instanceof Error ? error.message : 'unknown-error');
-        setActiveHarnessTaskId(null);
-        setActiveHarnessStage(null);
-        setTaskSummaryState('idle');
-        setActivePrimeState('unprimed');
-        setActiveHarnessGate(null);
+        clearActiveHarnessTaskView();
       }
     };
 
@@ -1108,10 +1711,34 @@ export function useChatComposerState({
     return () => {
       isCancelled = true;
     };
-  }, [refreshCurrentHarnessTask, selectedProject]);
+  }, [clearActiveHarnessTaskView, refreshCurrentHarnessTask, selectedProject]);
 
   useEffect(() => {
-    if (!selectedProject || harnessAvailability !== 'available') {
+    if (!selectedProject || typeof window === 'undefined') {
+      return;
+    }
+
+    const projectPath = selectedProject.fullPath || selectedProject.path || '';
+    const handleHarnessTaskReset = (event: Event) => {
+      const customEvent = event as CustomEvent<{ projectPath?: string | null }>;
+      if (customEvent.detail?.projectPath !== projectPath) {
+        return;
+      }
+      clearActiveHarnessTaskView();
+    };
+
+    window.addEventListener(HARNESS_CURRENT_TASK_RESET_EVENT, handleHarnessTaskReset as EventListener);
+    return () => {
+      window.removeEventListener(HARNESS_CURRENT_TASK_RESET_EVENT, handleHarnessTaskReset as EventListener);
+    };
+  }, [clearActiveHarnessTaskView, selectedProject]);
+
+  useEffect(() => {
+    if (!selectedProject || harnessAvailability !== 'available' || isLoading) {
+      return;
+    }
+
+    if (conversationMode !== 'harness' && !activeHarnessTaskId) {
       return;
     }
 
@@ -1134,13 +1761,20 @@ export function useChatComposerState({
     void refreshHarnessTaskSummary();
     const intervalId = window.setInterval(() => {
       void refreshHarnessTaskSummary();
-    }, 2000);
+    }, 5000);
 
     return () => {
       isCancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [harnessAvailability, refreshCurrentHarnessTask, selectedProject]);
+  }, [
+    activeHarnessTaskId,
+    conversationMode,
+    harnessAvailability,
+    isLoading,
+    refreshCurrentHarnessTask,
+    selectedProject,
+  ]);
 
   const handleConversationModeToggle = useCallback(() => {
     if (!selectedProject) {
@@ -1174,6 +1808,23 @@ export function useChatComposerState({
     selectedProject,
     showHarnessUnavailableMessage,
   ]);
+
+  const handleHarnessScenarioChange = useCallback(
+    (nextScenario: HarnessWorkflowScenario) => {
+      if (!selectedProject) {
+        return;
+      }
+
+      setHarnessScenario(nextScenario);
+      safeLocalStorage.setItem(getHarnessScenarioStorageKey(selectedProject.name), nextScenario);
+      void recordAppMetricEvent({
+        metricKey: 'M3',
+        name: 'harness_scenario_changed',
+        reason: nextScenario,
+      });
+    },
+    [recordAppMetricEvent, selectedProject],
+  );
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -1315,12 +1966,27 @@ export function useChatComposerState({
       return;
     }
 
+    // Stop should feel immediate locally even if the provider's complete event arrives later.
+    setIsLoading(false);
+    setCanAbortSession(false);
+    setClaudeStatus(null);
+
     sendMessage({
       type: 'abort-session',
       sessionId: targetSessionId,
       provider,
     });
-  }, [canAbortSession, currentSessionId, pendingViewSessionRef, provider, selectedSession?.id, sendMessage]);
+  }, [
+    canAbortSession,
+    currentSessionId,
+    pendingViewSessionRef,
+    provider,
+    selectedSession?.id,
+    sendMessage,
+    setCanAbortSession,
+    setClaudeStatus,
+    setIsLoading,
+  ]);
 
   const handleGrantToolPermission = useCallback(
     (suggestion: { entry: string; toolName: string }) => {
@@ -1384,6 +2050,8 @@ export function useChatComposerState({
     thinkingMode,
     setThinkingMode,
     conversationMode,
+    harnessScenario,
+    recommendedHarnessFlow,
     harnessAvailability,
     harnessAvailabilityReason,
     activeHarnessTaskId,
@@ -1392,6 +2060,7 @@ export function useChatComposerState({
     activePrimeState,
     activeHarnessGate,
     handleConversationModeToggle,
+    handleHarnessScenarioChange,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
