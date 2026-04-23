@@ -1,20 +1,20 @@
 {
   "name": "@siteboon/claude-code-ui",
   "version": "2.0.0",
-  "description": "This package has moved to @cloudcli-ai/cloudcli",
+  "description": "Legacy compatibility wrapper for Agent增强版",
   "type": "module",
   "main": "index.js",
   "bin": {
     "claude-code-ui": "./bin.js",
     "cloudcli": "./bin.js"
   },
-  "homepage": "https://cloudcli.ai",
+  "homepage": "https://github.com/UF-gzj/agent-enhanced-ui",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/siteboon/claudecodeui.git"
+    "url": "git+https://github.com/UF-gzj/agent-enhanced-ui.git"
   },
   "bugs": {
-    "url": "https://github.com/siteboon/claudecodeui/issues"
+    "url": "https://github.com/UF-gzj/agent-enhanced-ui/issues"
   },
   "keywords": [
     "claude code",
@@ -34,10 +34,10 @@
     "ui",
     "mobile IDE"
   ],
-  "author": "CloudCLI UI Contributors",
+  "author": "关镇江基于开源项目改造",
   "dependencies": {
     "@cloudcli-ai/cloudcli": "*"
   },
-  "deprecated": "This package has been renamed to @cloudcli-ai/cloudcli. Please install @cloudcli-ai/cloudcli instead.",
+  "deprecated": "Legacy compatibility wrapper retained from the upstream project. Please use the main Agent增强版 repository instead.",
   "license": "AGPL-3.0-or-later"
 }
