@@ -1,7 +1,7 @@
 {
-  "name": "CloudCLI UI",
-  "short_name": "CloudCLI UI",
-  "description": "CloudCLI UI web application",
+  "name": "Agent增强版",
+  "short_name": "Agent增强版",
+  "description": "关镇江基于开源项目改造的 AI 开发工作台",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

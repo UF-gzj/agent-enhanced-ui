@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * CloudCLI CLI
+ * Agent增强版 CLI
  *
- * Provides command-line utilities for managing CloudCLI
+ * Provides command-line utilities for managing Agent增强版
  *
  * Commands:
  *   (no args)     - Start the server (default)
@@ -89,7 +89,7 @@ function getInstallDir() {
 
 // Show status command
 function showStatus() {
-    console.log(`\n${c.bright('CloudCLI UI - Status')}\n`);
+    console.log(`\n${c.bright('Agent增强版 - Status')}\n`);
     console.log(c.dim('═'.repeat(60)));
 
     // Version info
@@ -146,7 +146,7 @@ function showStatus() {
 function showHelp() {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║              CloudCLI - Command Line Tool               ║
+║             Agent增强版 - Command Line Tool            ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 Usage:
@@ -154,7 +154,7 @@ Usage:
   cloudcli [command] [options]
 
 Commands:
-  start          Start the CloudCLI server (default)
+  start          Start the Agent增强版 server (default)
   sandbox        Manage Docker sandbox environments
   status         Show configuration and data locations
   update         Update to the latest version
@@ -181,10 +181,10 @@ Environment Variables:
   CONTEXT_WINDOW      Set context window size (default: 160000)
 
 Documentation:
-  ${packageJson.homepage || 'https://github.com/siteboon/claudecodeui'}
+  ${packageJson.homepage || 'https://github.com/UF-gzj/agent-enhanced-ui'}
 
 Report Issues:
-  ${packageJson.bugs?.url || 'https://github.com/siteboon/claudecodeui/issues'}
+  ${packageJson.bugs?.url || 'https://github.com/UF-gzj/agent-enhanced-ui/issues'}
 `);
 }
 
@@ -320,7 +320,7 @@ function parseSandboxArgs(args) {
 
 function showSandboxHelp() {
     console.log(`
-${c.bright('CloudCLI Sandbox')} — Run CloudCLI inside Docker Sandboxes
+${c.bright('Agent增强版 Sandbox')} — Run Agent增强版 inside Docker Sandboxes
 
 Usage:
   cloudcli sandbox <workspace>            Create and start a sandbox
@@ -454,7 +454,7 @@ async function sandboxCommand(args) {
             restartRun.unref();
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            console.log(`${c.info('▶')} Launching CloudCLI web server...`);
+            console.log(`${c.info('▶')} Launching Agent增强版 web server...`);
             sbx(['exec', opts.name, 'bash', '-c', 'cloudcli start --port 3001 &']);
 
             console.log(`${c.info('▶')} Forwarding port ${opts.port} → 3001...`);
@@ -477,7 +477,7 @@ async function sandboxCommand(args) {
                 }
             }
 
-            console.log(`\n${c.ok('✔')} ${c.bright('CloudCLI is ready!')}`);
+            console.log(`\n${c.ok('✔')} ${c.bright('Agent增强版 is ready!')}`);
             console.log(`  ${c.info('→')} ${c.bright(`http://localhost:${opts.port}`)}\n`);
             break;
         }
@@ -553,7 +553,7 @@ async function sandboxCommand(args) {
             }
 
             // Step 3: Start CloudCLI inside the sandbox
-            console.log(`${c.info('▶')} Launching CloudCLI web server...`);
+            console.log(`${c.info('▶')} Launching Agent增强版 web server...`);
             sbx(['exec', opts.name, 'bash', '-c', 'cloudcli start --port 3001 &']);
 
             // Step 4: Forward port
@@ -578,7 +578,7 @@ async function sandboxCommand(args) {
             }
 
             // Done
-            console.log(`\n${c.ok('✔')} ${c.bright('CloudCLI is ready!')}`);
+            console.log(`\n${c.ok('✔')} ${c.bright('Agent增强版 is ready!')}`);
             console.log(`  ${c.info('→')} Open ${c.bright(`http://localhost:${opts.port}`)}`);
             console.log(`\n${c.dim('  Manage with:')}`);
             console.log(`  ${c.dim('$')} sbx ls`);

@@ -1,7 +1,5 @@
-import { ExternalLink, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import type { ReactNode } from 'react';
-
-const CLOUDCLI_URL = 'https://cloudcli.ai';
 
 type PremiumFeatureCardProps = {
   icon: ReactNode;
@@ -14,7 +12,7 @@ export default function PremiumFeatureCard({
   icon,
   title,
   description,
-  ctaText = 'Available with CloudCLI Pro',
+  ctaText = '当前构建未提供此能力',
 }: PremiumFeatureCardProps) {
   return (
     <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-5">
@@ -30,15 +28,9 @@ export default function PremiumFeatureCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
-          <a
-            href={CLOUDCLI_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:underline"
-          >
+          <span className="mt-3 inline-flex text-xs font-medium text-muted-foreground">
             {ctaText}
-            <ExternalLink className="h-3 w-3" />
-          </a>
+          </span>
         </div>
       </div>
     </div>
