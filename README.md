@@ -180,7 +180,7 @@ http://localhost:3001
 
 默认数据库路径逻辑在：
 
-- [E:\data\claudecodeui-upstream\server\load-env.js](</E:/data/claudecodeui-upstream/server/load-env.js>)
+- `server/load-env.js`
 
 ---
 
@@ -530,7 +530,7 @@ npm run typecheck
 ### 11.2 一期浏览器自动化
 
 ```bash
-$env:CLOUDCLI_E2E_HARNESS_PROJECT_PATH='E:\\data\\claudecodeui-upstream\\tests\\e2e\\fixtures\\harness-workspace'
+$env:CLOUDCLI_E2E_HARNESS_PROJECT_PATH='tests\\e2e\\fixtures\\harness-workspace'
 npm run test:e2e:harness-phase1
 ```
 
@@ -698,7 +698,7 @@ AGPL-3.0-or-later
 
 详情见：
 
-- [E:\data\claudecodeui-upstream\LICENSE](</E:/data/claudecodeui-upstream/LICENSE>)
+- [LICENSE](LICENSE)
 
 ---
 
